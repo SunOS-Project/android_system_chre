@@ -26,11 +26,28 @@
 #include <optional>
 #include <unordered_set>
 
+#include "chre_host/napp_header.h"
 #include "debug_dump_helper.h"
 #include "event_logger.h"
 #include "hal_chre_socket_connection.h"
 
 namespace aidl::android::hardware::contexthub {
+
+using ::android::chre::NanoAppBinaryHeader;
+
+/**
+ * Contains information about a preloaded nanoapp. Used when getting
+ * preloaded nanoapp information from the config.
+ */
+struct chrePreloadedNanoappInfo {
+  chrePreloadedNanoappInfo(int64_t _id, const std::string &_name,
+                           const NanoAppBinaryHeader &_header)
+      : id(_id), name(_name), header(_header) {}
+
+  int64_t id;
+  std::string name;
+  NanoAppBinaryHeader header;
+};
 
 class ContextHub : public BnContextHub,
                    public ::android::hardware::contexthub::DebugDumpHelper,
@@ -60,20 +77,12 @@ class ContextHub : public BnContextHub,
       const std::shared_ptr<IContextHubCallback> &cb) override;
   ::ndk::ScopedAStatus sendMessageToHub(
       int32_t contextHubId, const ContextHubMessage &message) override;
-
-  // TODO(b/258074235): Add to AIDL HAL definition
-  /**
-   * Enables test mode for the context hub by unloading all preloaded nanoapps
-   * that are loaded.
-   *
-   * @return            the status
-   */
-  ::ndk::ScopedAStatus enableTestMode();
-
+  ::ndk::ScopedAStatus setTestMode(bool enable) override;
   ::ndk::ScopedAStatus onHostEndpointConnected(
       const HostEndpointInfo &in_info) override;
   ::ndk::ScopedAStatus onHostEndpointDisconnected(
       char16_t in_hostEndpointId) override;
+  ::ndk::ScopedAStatus onNanSessionStateChanged(bool in_state) override;
 
   void onNanoappMessage(const ::chre::fbs::NanoappMessageT &message) override;
 
@@ -104,6 +113,22 @@ class ContextHub : public BnContextHub,
 
  private:
   /**
+   * Enables test mode on the context hub. This unloads all nanoapps and puts
+   * CHRE in a state that is consistent for testing.
+   *
+   * @return                            the status.
+   */
+  ::ndk::ScopedAStatus enableTestMode();
+
+  /**
+   * Disables test mode. Reverses the affects of enableTestMode() by loading all
+   * preloaded nanoapps. This puts CHRE back in a normal state.
+   *
+   * @return                            the status.
+   */
+  ::ndk::ScopedAStatus disableTestMode();
+
+  /**
    * Queries the list of loaded nanoapps in a synchronous manner.
    * The list is stored in the mQueryNanoappsInternalList variable.
    *
@@ -116,6 +141,30 @@ class ContextHub : public BnContextHub,
    */
   bool queryNanoappsInternal(int32_t contextHubId,
                              std::vector<int64_t> *nanoappIdList);
+
+  /**
+   * Loads a nanoapp.
+   *
+   * @param appBinary                   the nanoapp binary to load.
+   * @param transactionId               the transaction ID.
+   *
+   * @return true                       the operation was successful.
+   * @return false                      the operation was not successful.
+   */
+  bool loadNanoappInternal(const NanoappBinary &appBinary,
+                           int32_t transactionId);
+
+  /**
+   * Loads the nanoapps in a synchronous manner.
+   *
+   * @param contextHubId                the ID of the context hub.
+   * @param nanoappBinaryList           the list of NanoappBinary's to load.
+   * @return true                       the operation was successful.
+   * @return false                      the operation was not successful.
+   */
+  bool loadNanoappsInternal(
+      int32_t contextHubId,
+      const std::vector<NanoappBinary> &nanoappBinaryList);
 
   /**
    * Unloads a nanoapp.
@@ -140,14 +189,30 @@ class ContextHub : public BnContextHub,
                               const std::vector<int64_t> &nanoappIdList);
 
   /**
-   * Get the preloaded nanoapp IDs from the config file and headers.
+   * Get the preloaded nanoapp IDs from the config file and headers. All IDs,
+   * names and headers are in the same order (one nanoapp has the same index in
+   * each).
    *
-   * @param preloadedNanoappIds         out parameter, nanoapp IDs.
+   * @param out_preloadedNanoapps       out parameter, the nanoapp information.
+   * @param out_directory               out parameter, optional, the directory
+   * that contains the nanoapps.
    * @return true                       the operation was successful.
    * @return false                      the operation was not successful.
    */
   bool getPreloadedNanoappIdsFromConfigFile(
-      std::vector<int64_t> &preloadedNanoappIds) const;
+      std::vector<chrePreloadedNanoappInfo> &out_preloadedNanoapps,
+      std::string *out_directory) const;
+
+  /**
+   * Selects the nanoapps to load -> all preloaded and non-system nanoapps.
+   *
+   * @param preloadedNanoapps           the preloaded nanoapps.
+   * @param preloadedNanoappDirectory   the preloaded nanoapp directory.
+   * @return                            the nanoapps to load.
+   */
+  std::vector<NanoappBinary> selectPreloadedNanoappsToLoad(
+      std::vector<chrePreloadedNanoappInfo> &preloadedNanoapps,
+      const std::string &preloadedNanoappDirectory);
 
   bool isSettingEnabled(Setting setting) {
     return mSettingEnabled.count(setting) > 0 && mSettingEnabled[setting];
@@ -187,16 +252,19 @@ class ContextHub : public BnContextHub,
   std::condition_variable mQueryNanoappsInternalCondVar;
   std::optional<std::vector<NanoappInfo>> mQueryNanoappsInternalList;
 
-  // State for unloading nanoapps synchronously.
-  std::mutex mUnloadNanoappsMutex;
-  std::condition_variable mUnloadNanoappsCondVar;
-  std::optional<bool> mUnloadNanoappsSuccess;
-  std::optional<int32_t> mUnloadNanoappsTransactionId;
+  // State for synchronous loads and unloads. Primarily used for test mode.
+  std::mutex mSynchronousLoadUnloadMutex;
+  std::condition_variable mSynchronousLoadUnloadCondVar;
+  std::optional<bool> mSynchronousLoadUnloadSuccess;
+  std::optional<int32_t> mSynchronousLoadUnloadTransactionId;
 
   // A boolean and mutex to synchronize test mode state changes and
   // load/unloads.
   std::mutex mTestModeMutex;
   bool mIsTestModeEnabled = false;
+
+  // List of system nanoapp Ids.
+  std::vector<int64_t> mSystemNanoappIds;
 };
 
 }  // namespace aidl::android::hardware::contexthub

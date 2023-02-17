@@ -19,11 +19,11 @@
 
 #include "chre_settings_test.nanopb.h"
 
-#include <chre.h>
 #include <cinttypes>
 
 #include "chre/util/optional.h"
 #include "chre/util/singleton.h"
+#include "chre_api/chre.h"
 
 namespace chre {
 
@@ -181,6 +181,9 @@ class Manager {
 
   //! The cached target to issue an RTT ranging request.
   chre::Optional<chreWifiRangingTarget> mCachedRangingTarget;
+
+  //! The number of scan result received when after getting a wifi async result.
+  uint16_t mReceivedScanResults;
 };
 
 // The settings test manager singleton.

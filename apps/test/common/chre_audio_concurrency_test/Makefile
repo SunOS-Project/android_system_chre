@@ -23,7 +23,6 @@ NANOAPP_VERSION = 0x00000002
 NANOAPP_PATH = $(CHRE_PREFIX)/apps/test/common/chre_audio_concurrency_test
 TEST_SHARED_PATH = $(CHRE_PREFIX)/apps/test/common/shared
 
-CHRE_STD_OVERRIDES_ALLOWED = true
 
 # Protobuf Sources #############################################################
 
@@ -37,6 +36,7 @@ NANOPB_INCLUDES = $(NANOAPP_PATH)/../proto
 
 COMMON_SRCS += $(NANOAPP_PATH)/src/chre_audio_concurrency_test.cc
 COMMON_SRCS += $(NANOAPP_PATH)/src/chre_audio_concurrency_test_manager.cc
+COMMON_SRCS += $(TEST_SHARED_PATH)/src/audio_validation.cc
 COMMON_SRCS += $(TEST_SHARED_PATH)/src/send_message.cc
 COMMON_SRCS += $(CHRE_PREFIX)/util/nanoapp/callbacks.cc
 

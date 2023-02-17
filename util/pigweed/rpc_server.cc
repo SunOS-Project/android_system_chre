@@ -16,12 +16,12 @@
 
 #include "chre/util/pigweed/rpc_server.h"
 
-#include <chre.h>
 #include <cinttypes>
 #include <cstdint>
 
 #include "chre/util/nanoapp/log.h"
 #include "chre/util/pigweed/rpc_helper.h"
+#include "chre_api/chre.h"
 
 #ifndef LOG_TAG
 #define LOG_TAG "[RpcServer]"
@@ -52,6 +52,11 @@ bool RpcServer::registerServices(size_t numServices,
 
   for (size_t i = 0; i < numServices; ++i) {
     const Service &service = services[i];
+
+    if (mServer.IsServiceRegistered(service.service)) {
+      return false;
+    }
+
     chreServices[i] = {
         .id = service.id,
         .version = service.version,

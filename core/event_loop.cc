@@ -41,6 +41,16 @@ constexpr Nanoseconds EventLoop::kIntervalWakeupBucket;
 
 namespace {
 
+#ifndef CHRE_STATIC_EVENT_LOOP
+using DynamicMemoryPool =
+    SynchronizedExpandableMemoryPool<Event, CHRE_EVENT_PER_BLOCK,
+                                     CHRE_MAX_EVENT_BLOCKS>;
+#endif
+// TODO(b/264108686): Make this a compile time parameter.
+// How many low priority event to remove if the event queue is full
+// and a new event needs to be pushed.
+constexpr size_t targetLowPriorityEventRemove = 4;
+
 /**
  * Populates a chreNanoappInfo structure using info from the given Nanoapp
  * instance.
@@ -70,6 +80,20 @@ bool populateNanoappInfo(const Nanoapp *app, struct chreNanoappInfo *info) {
 
   return success;
 }
+
+#ifndef CHRE_STATIC_EVENT_LOOP
+/**
+ * @return true if a event is a low priority event.
+ */
+bool isLowPriorityEvent(Event *event) {
+  CHRE_ASSERT_NOT_NULL(event);
+  return event->isLowPriority;
+}
+
+void deallocateFromMemoryPool(Event *event, void *memoryPool) {
+  static_cast<DynamicMemoryPool *>(memoryPool)->deallocate(event);
+}
+#endif
 
 }  // anonymous namespace
 
@@ -247,12 +271,38 @@ bool EventLoop::unloadNanoapp(uint16_t instanceId,
   return unloaded;
 }
 
+bool EventLoop::removeLowPriorityEventsFromBack(size_t removeNum) {
+#ifdef CHRE_STATIC_EVENT_LOOP
+  return false;
+#else
+  if (removeNum == 0) {
+    return true;
+  }
+
+  size_t numRemovedEvent = mEvents.removeMatchedFromBack(
+      isLowPriorityEvent, removeNum, deallocateFromMemoryPool, &mEventPool);
+  if (numRemovedEvent == 0 || numRemovedEvent == SIZE_MAX) {
+    LOGW("Cannot remove any low priority event");
+  } else {
+    mNumDroppedLowPriEvents += numRemovedEvent;
+  }
+  return numRemovedEvent > 0;
+#endif
+}
+
+bool EventLoop::hasNoSpaceForHighPriorityEvent() {
+  return mEventPool.full() &&
+         !removeLowPriorityEventsFromBack(targetLowPriorityEventRemove);
+}
+
+// TODO(b/264108686): Refactor this function and postSystemEvent
 void EventLoop::postEventOrDie(uint16_t eventType, void *eventData,
                                chreEventCompleteFunction *freeCallback,
                                uint16_t targetInstanceId,
                                uint16_t targetGroupMask) {
   if (mRunning) {
-    if (!allocateAndPostEvent(eventType, eventData, freeCallback,
+    if (hasNoSpaceForHighPriorityEvent() ||
+        !allocateAndPostEvent(eventType, eventData, freeCallback,
                               false /*isLowPriority*/, kSystemInstanceId,
                               targetInstanceId, targetGroupMask)) {
       FATAL_ERROR("Failed to post critical system event 0x%" PRIx16, eventType);
@@ -265,16 +315,25 @@ void EventLoop::postEventOrDie(uint16_t eventType, void *eventData,
 bool EventLoop::postSystemEvent(uint16_t eventType, void *eventData,
                                 SystemEventCallbackFunction *callback,
                                 void *extraData) {
-  if (mRunning) {
-    Event *event =
-        mEventPool.allocate(eventType, eventData, callback, extraData);
-
-    if (event == nullptr || !mEvents.push(event)) {
-      FATAL_ERROR("Failed to post critical system event 0x%" PRIx16, eventType);
-    }
-    return true;
+  if (!mRunning) {
+    return false;
   }
-  return false;
+
+  if (hasNoSpaceForHighPriorityEvent()) {
+    FATAL_ERROR("Failed to post critical system event 0x%" PRIx16
+                ": Full of high priority "
+                "events",
+                eventType);
+  }
+
+  Event *event = mEventPool.allocate(eventType, eventData, callback, extraData);
+  if (event == nullptr || !mEvents.push(event)) {
+    FATAL_ERROR("Failed to post critical system event 0x%" PRIx16
+                ": out of memory",
+                eventType);
+  }
+
+  return true;
 }
 
 bool EventLoop::postLowPriorityEventOrFree(
@@ -284,11 +343,12 @@ bool EventLoop::postLowPriorityEventOrFree(
   bool eventPosted = false;
 
   if (mRunning) {
-#if CHRE_STATIC_EVENT_LOOP
-    if (mEventPool.getFreeBlockCount() > kMinReservedHighPriorityEventCount) {
+#ifdef CHRE_STATIC_EVENT_LOOP
+    if (mEventPool.getFreeBlockCount() > kMinReservedHighPriorityEventCount)
 #else
-    if (mEventPool.getFreeSpaceCount() > kMinReservedHighPriorityEventCount) {
+    if (mEventPool.getFreeSpaceCount() > kMinReservedHighPriorityEventCount)
 #endif
+    {
       eventPosted = allocateAndPostEvent(
           eventType, eventData, freeCallback, true /*isLowPriority*/,
           senderInstanceId, targetInstanceId, targetGroupMask);
