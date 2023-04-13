@@ -139,15 +139,16 @@ ScopedAStatus MultiClientContextHubBase::loadNanoapp(
   auto clientId = mHalClientManager->getClientId();
   auto request = mHalClientManager->getNextFragmentedLoadRequest(
       clientId, transactionId, std::nullopt);
-
-  if (request.has_value() &&
-      sendFragmentedLoadRequest(clientId, request.value())) {
-    return ScopedAStatus::ok();
+  if (!request.has_value()) {
+    LOGE("Failed to get the first load request.");
+    mHalClientManager->resetPendingLoadTransaction();
+    return fromResult(false);
   }
-  LOGE("Failed to send the first load request for nanoapp 0x%" PRIx64,
-       appBinary.nanoappId);
-  mHalClientManager->resetPendingLoadTransaction();
-  return fromResult(false);
+  bool result = sendFragmentedLoadRequest(clientId, request.value());
+  if (!result) {
+    mHalClientManager->resetPendingLoadTransaction();
+  }
+  return fromResult(result);
 }
 
 bool MultiClientContextHubBase::sendFragmentedLoadRequest(
@@ -455,9 +456,9 @@ void MultiClientContextHubBase::onLoadNanoappResponse(
     mPreloadedNanoappLoader->onLoadNanoappResponse(response, clientId);
     return;
   }
+
   auto nextFragmentedRequest = mHalClientManager->getNextFragmentedLoadRequest(
       clientId, response.transaction_id, response.fragment_id);
-  // continue to send the next fragment if there is any.
   if (response.success && nextFragmentedRequest.has_value()) {
     LOGD("Sending next FragmentedLoadRequest for client %" PRIu16
          ": (transaction: %" PRIu32 ", fragment %zu)",
@@ -466,13 +467,11 @@ void MultiClientContextHubBase::onLoadNanoappResponse(
     sendFragmentedLoadRequest(clientId, nextFragmentedRequest.value());
     return;
   }
-  // Clears out the pending load transaction if the previous fragment fails to
-  // load.
+
   if (!response.success) {
     LOGE("Sending FragmentedLoadRequest for client %" PRIu16
          " failed: (transaction: %" PRIu32 ", fragment %" PRIu32 ")",
          clientId, response.transaction_id, response.fragment_id);
-    mHalClientManager->resetPendingLoadTransaction();
   }
   if (auto callback = mHalClientManager->getCallback(clientId);
       callback != nullptr) {
