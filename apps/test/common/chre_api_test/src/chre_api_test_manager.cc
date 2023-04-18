@@ -193,17 +193,6 @@ pw::Status ChreApiTestService::ChreConfigureHostEndpointNotifications(
              : pw::Status::InvalidArgument();
 }
 
-pw::Status ChreApiTestService::RetrieveLatestDisconnectedHostEndpointEvent(
-    const chre_rpc_Void &request,
-    chre_rpc_RetrieveLatestDisconnectedHostEndpointEventOutput &response) {
-  ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
-      CHRE_MESSAGE_PERMISSION_NONE);
-  return validateInputAndRetrieveLatestDisconnectedHostEndpointEvent(request,
-                                                                     response)
-             ? pw::OkStatus()
-             : pw::Status::InvalidArgument();
-}
-
 pw::Status ChreApiTestService::ChreGetHostEndpointInfo(
     const chre_rpc_ChreGetHostEndpointInfoInput &request,
     chre_rpc_ChreGetHostEndpointInfoOutput &response) {
@@ -300,7 +289,7 @@ void ChreApiTestService::GatherEvents(
   for (uint32_t i = 0; i < request.eventTypeCount; ++i) {
     if (request.eventTypes[i] < std::numeric_limits<uint16_t>::min() ||
         request.eventTypes[i] > std::numeric_limits<uint16_t>::max()) {
-      LOGE("GatherEvents: invalid request.eventTypes: i: %" PRIu32, i);
+      LOGE("GatherEvents: invalid request.eventTypes at index: %" PRIu32, i);
       ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
           CHRE_MESSAGE_PERMISSION_NONE);
       writer.Finish();
@@ -476,17 +465,6 @@ void ChreApiTestService::handleTimerEvent(const void *cookie) {
   }
 }
 
-void ChreApiTestService::handleHostEndpointNotificationEvent(
-    const chreHostEndpointNotification *data) {
-  if (data->notificationType != HOST_ENDPOINT_NOTIFICATION_TYPE_DISCONNECT) {
-    LOGW("Received non disconnected event");
-    return;
-  }
-
-  ++mReceivedHostEndpointDisconnectedNum;
-  mLatestHostEndpointNotification = *data;
-}
-
 void ChreApiTestService::copyString(char *destination, const char *source,
                                     size_t maxChars) {
   CHRE_ASSERT_NOT_NULL(destination);
@@ -544,10 +522,6 @@ void ChreApiTestManager::handleEvent(uint32_t senderInstanceId,
       break;
     case CHRE_EVENT_TIMER:
       mChreApiTestService.handleTimerEvent(eventData);
-      break;
-    case CHRE_EVENT_HOST_ENDPOINT_NOTIFICATION:
-      mChreApiTestService.handleHostEndpointNotificationEvent(
-          static_cast<const chreHostEndpointNotification *>(eventData));
       break;
     default: {
       // ignore
