@@ -48,19 +48,6 @@ class ChreApiTestService final
                                           chre_rpc_Capabilities &response);
 
   /**
-   * Starts a BLE scan.
-   */
-  pw::Status ChreBleStartScanAsync(
-      const chre_rpc_ChreBleStartScanAsyncInput &request,
-      chre_rpc_Status &response);
-
-  /**
-   * Stops a BLE scan.
-   */
-  pw::Status ChreBleStopScanAsync(const google_protobuf_Empty &request,
-                                  chre_rpc_Status &response);
-
-  /**
    * Finds the default sensor and returns the handle in the output.
    */
   pw::Status ChreSensorFindDefault(
@@ -166,16 +153,6 @@ class ChreApiTestService final
       const chreHostEndpointNotification *data);
 
  private:
-  /**
-   * Copies a string from source to destination up to the length of the source
-   * or the max value. Pads with null characters.
-   *
-   * @param destination         the destination string.
-   * @param source              the source string.
-   * @param maxChars            the maximum number of chars.
-   */
-  void copyString(char *destination, const char *source, size_t maxChars);
-
   /**
    * Sets the synchronous timeout timer for the active sync message.
    *

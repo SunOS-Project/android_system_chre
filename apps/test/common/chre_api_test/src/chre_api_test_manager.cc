@@ -103,25 +103,6 @@ pw::Status ChreApiTestService::ChreBleGetFilterCapabilities(
              : pw::Status::InvalidArgument();
 }
 
-pw::Status ChreApiTestService::ChreBleStartScanAsync(
-    const chre_rpc_ChreBleStartScanAsyncInput &request,
-    chre_rpc_Status &response) {
-  ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
-      CHRE_MESSAGE_PERMISSION_NONE);
-  return validateInputAndCallChreBleStartScanAsync(request, response)
-             ? pw::OkStatus()
-             : pw::Status::InvalidArgument();
-}
-
-pw::Status ChreApiTestService::ChreBleStopScanAsync(
-    const google_protobuf_Empty &request, chre_rpc_Status &response) {
-  ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
-      CHRE_MESSAGE_PERMISSION_NONE);
-  return validateInputAndCallChreBleStopScanAsync(request, response)
-             ? pw::OkStatus()
-             : pw::Status::InvalidArgument();
-}
-
 pw::Status ChreApiTestService::ChreSensorFindDefault(
     const chre_rpc_ChreSensorFindDefaultInput &request,
     chre_rpc_ChreSensorFindDefaultOutput &response) {
@@ -463,23 +444,6 @@ void ChreApiTestService::handleTimerEvent(const void *cookie) {
     mEventTimerHandle = CHRE_TIMER_INVALID;
     LOGD("Timeout for event collection");
   }
-}
-
-void ChreApiTestService::copyString(char *destination, const char *source,
-                                    size_t maxChars) {
-  CHRE_ASSERT_NOT_NULL(destination);
-  CHRE_ASSERT_NOT_NULL(source);
-
-  if (maxChars == 0) {
-    return;
-  }
-
-  uint32_t i;
-  for (i = 0; i < maxChars - 1 && source[i] != '\0'; ++i) {
-    destination[i] = source[i];
-  }
-
-  memset(&destination[i], 0, maxChars - i);
 }
 
 bool ChreApiTestService::startSyncTimer() {
