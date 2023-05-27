@@ -20,7 +20,6 @@
 #include <chre_host/log.h>
 #include "chre/event.h"
 #include "chre_host/config_util.h"
-#include "chre_host/file_stream.h"
 #include "chre_host/fragmented_load_transaction.h"
 #include "chre_host/host_protocol_host.h"
 #include "permissions_util.h"
@@ -143,11 +142,15 @@ ScopedAStatus MultiClientContextHubBase::loadNanoapp(
 
   if (request.has_value() &&
       sendFragmentedLoadRequest(clientId, request.value())) {
+    mEventLogger.logNanoappLoad(appBinary, /* success= */ true);
     return ScopedAStatus::ok();
   }
   LOGE("Failed to send the first load request for nanoapp 0x%" PRIx64,
        appBinary.nanoappId);
   mHalClientManager->resetPendingLoadTransaction();
+  // TODO(b/284481035): The result should be logged after the async response is
+  //  received.
+  mEventLogger.logNanoappLoad(appBinary, /* success= */ false);
   return fromResult(false);
 }
 
@@ -181,6 +184,9 @@ ScopedAStatus MultiClientContextHubBase::unloadNanoapp(int32_t contextHubId,
   if (!result) {
     mHalClientManager->resetPendingUnloadTransaction(clientId, transactionId);
   }
+  // TODO(b/284481035): The result should be logged after the async response is
+  //  received.
+  mEventLogger.logNanoappUnload(appId, result);
   return fromResult(result);
 }
 
@@ -315,7 +321,9 @@ ScopedAStatus MultiClientContextHubBase::sendMessageToHub(
   HostProtocolHost::encodeNanoappMessage(
       builder, message.nanoappId, message.messageType, hostEndpointId,
       message.messageBody.data(), message.messageBody.size());
-  return fromResult(mConnection->sendMessage(builder));
+  bool success = mConnection->sendMessage(builder);
+  mEventLogger.logMessageToNanoapp(message, success);
+  return fromResult(success);
 }
 
 ScopedAStatus MultiClientContextHubBase::onHostEndpointConnected(
@@ -409,6 +417,14 @@ void MultiClientContextHubBase::handleMessageFromChre(
       onNanoappMessage(*message.AsNanoappMessage());
       break;
     }
+    case fbs::ChreMessage::DebugDumpData: {
+      onDebugDumpData(*message.AsDebugDumpData());
+      break;
+    }
+    case fbs::ChreMessage::DebugDumpResponse: {
+      onDebugDumpComplete(*message.AsDebugDumpResponse());
+      break;
+    }
     default:
       LOGW("Got unexpected message type %" PRIu8,
            static_cast<uint8_t>(message.type));
@@ -432,6 +448,26 @@ void MultiClientContextHubBase::handleHubInfoResponse(
   mContextHubInfo->chrePatchVersion = extractChrePatchVersion(version);
   mContextHubInfo->supportedPermissions = kSupportedPermissions;
   mHubInfoCondition.notify_all();
+}
+
+void MultiClientContextHubBase::onDebugDumpData(
+    const ::chre::fbs::DebugDumpDataT &data) {
+  auto str = std::string(reinterpret_cast<const char *>(data.debug_str.data()),
+                         data.debug_str.size());
+  debugDumpAppend(str);
+}
+
+void MultiClientContextHubBase::onDebugDumpComplete(
+    const ::chre::fbs::DebugDumpResponseT &response) {
+  if (!response.success) {
+    LOGE("Dumping debug information fails");
+  }
+  if (checkDebugFd()) {
+    const std::string &dump = mEventLogger.dump();
+    writeToDebugFile(dump.c_str());
+    writeToDebugFile("\n-- End of CHRE/ASH debug info --\n");
+  }
+  debugDumpComplete();
 }
 
 void MultiClientContextHubBase::onNanoappListResponse(
@@ -526,6 +562,7 @@ void MultiClientContextHubBase::onNanoappUnloadResponse(
 
 void MultiClientContextHubBase::onNanoappMessage(
     const ::chre::fbs::NanoappMessageT &message) {
+  mEventLogger.logMessageFromNanoapp(message);
   ContextHubMessage outMessage;
   outMessage.nanoappId = message.app_id;
   outMessage.hostEndPoint = message.host_endpoint;
@@ -571,6 +608,27 @@ void MultiClientContextHubBase::handleClientDeath(pid_t clientPid) {
 
 void MultiClientContextHubBase::onChreRestarted() {
   mIsWifiAvailable.reset();
+  mEventLogger.logContextHubRestart();
   mHalClientManager->handleChreRestart();
+}
+
+binder_status_t MultiClientContextHubBase::dump(int fd,
+                                                const char ** /* args */,
+                                                uint32_t /* numArgs */) {
+  // debugDumpStart waits for the dump to finish before returning.
+  debugDumpStart(fd);
+  return STATUS_OK;
+}
+
+bool MultiClientContextHubBase::requestDebugDump() {
+  flatbuffers::FlatBufferBuilder builder;
+  HostProtocolHost::encodeDebugDumpRequest(builder);
+  return mConnection->sendMessage(builder);
+}
+
+void MultiClientContextHubBase::writeToDebugFile(const char *str) {
+  if (!::android::base::WriteStringToFd(std::string(str), getDebugFd())) {
+    LOGW("Failed to write %zu bytes to debug dump fd", strlen(str));
+  }
 }
 }  // namespace android::hardware::contexthub::common::implementation
