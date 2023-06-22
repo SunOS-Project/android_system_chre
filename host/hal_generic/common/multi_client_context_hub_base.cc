@@ -42,7 +42,6 @@ constexpr std::chrono::duration ktestModeTimeOut = std::chrono::seconds(5);
 enum class HalErrorCode : int32_t {
   OPERATION_FAILED = -1,
   INVALID_RESULT = -2,
-  INVALID_ARGUMENT = -3,
 };
 
 bool isValidContextHubId(uint32_t hubId) {
@@ -344,14 +343,14 @@ ScopedAStatus MultiClientContextHubBase::onHostEndpointConnected(
       break;
     default:
       LOGE("Unsupported host endpoint type %" PRIu32, info.type);
-      return fromServiceError(HalErrorCode::INVALID_ARGUMENT);
+      return ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
   }
 
   uint16_t endpointId = info.hostEndpointId;
   if (!mHalClientManager->registerEndpointId(info.hostEndpointId) ||
       !mHalClientManager->mutateEndpointIdFromHostIfNeeded(
           AIBinder_getCallingPid(), endpointId)) {
-    return fromServiceError(HalErrorCode::INVALID_ARGUMENT);
+    return ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
   }
   flatbuffers::FlatBufferBuilder builder(64);
   HostProtocolHost::encodeHostEndpointConnected(

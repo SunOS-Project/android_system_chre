@@ -16,6 +16,7 @@
 
 #include "chre/util/synchronized_expandable_memory_pool.h"
 
+#include "chre/util/synchronized_memory_pool.h"
 #include "gtest/gtest.h"
 
 using chre::SynchronizedExpandableMemoryPool;
