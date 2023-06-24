@@ -12,6 +12,7 @@ ifneq ($(PW_RPC_SRCS),)
 
 # Location of various Pigweed modules
 PIGWEED_DIR = $(ANDROID_BUILD_TOP)/external/pigweed
+PROTOBUF_DIR = $(ANDROID_BUILD_TOP)/external/protobuf
 CHRE_PREFIX = $(ANDROID_BUILD_TOP)/system/chre
 CHRE_UTIL_DIR = $(CHRE_PREFIX)/util
 CHRE_API_DIR = $(CHRE_PREFIX)/chre_api
@@ -80,7 +81,17 @@ PW_RPC_GEN_SRCS = $(patsubst %.proto, \
 # Include to-be-generated files
 COMMON_CFLAGS += -I$(PW_RPC_GEN_PATH)
 COMMON_CFLAGS += -I$(PW_RPC_GEN_PATH)/$(PIGWEED_DIR)
+
+# Add include paths to reference protos directly
 COMMON_CFLAGS += $(addprefix -I$(PW_RPC_GEN_PATH)/, $(abspath $(dir $(PW_RPC_SRCS))))
+
+# Add include paths to import protos
+ifneq ($(PW_RPC_INCLUDE_DIRS),)
+COMMON_CFLAGS += $(addprefix -I$(PW_RPC_GEN_PATH)/, $(abspath $(PW_RPC_INCLUDE_DIRS)))
+endif
+
+# Add Google proto well-known types. See https://protobuf.dev/reference/protobuf/google.protobuf/.
+COMMON_CFLAGS += -I$(PW_RPC_GEN_PATH)/$(PROTOBUF_DIR)/src
 
 COMMON_SRCS += $(PW_RPC_GEN_SRCS)
 
@@ -144,7 +155,7 @@ COMMON_CFLAGS += -DPW_RPC_USE_GLOBAL_MUTEX=0
 COMMON_CFLAGS += -DPW_RPC_YIELD_MODE=PW_RPC_YIELD_MODE_BUSY_LOOP
 
 # Enable closing a client stream.
-COMMON_CFLAGS += -DPW_RPC_CLIENT_STREAM_END_CALLBACK
+COMMON_CFLAGS += -DPW_RPC_COMPLETION_REQUEST_CALLBACK
 
 
 # Use dynamic channel allocation

@@ -493,7 +493,7 @@ cc_defaults {
     name: "pw_rpc_cflags_chre",
     cflags: [
         "-DPW_RPC_USE_GLOBAL_MUTEX=0",
-        "-DPW_RPC_CLIENT_STREAM_END_CALLBACK",
+        "-DPW_RPC_COMPLETION_REQUEST_CALLBACK",
         "-DPW_RPC_DYNAMIC_ALLOCATION",
     ],
 }
@@ -818,8 +818,12 @@ java_library_static {
     host_supported: true,
     proto: {
         type: "lite",
+        include_dirs: ["external/protobuf/src"],
     },
-    srcs: ["apps/test/common/chre_api_test/rpc/chre_api_test.proto"],
+    srcs: [
+        "apps/test/common/chre_api_test/rpc/chre_api_test.proto",
+        ":libprotobuf-internal-protos",
+    ],
     sdk_version: "current",
 }
 
