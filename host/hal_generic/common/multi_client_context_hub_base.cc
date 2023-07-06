@@ -36,10 +36,13 @@ constexpr uint32_t kDefaultHubId = 0;
 
 // timeout for calling getContextHubs(), which is synchronous
 constexpr auto kHubInfoQueryTimeout = std::chrono::seconds(5);
+// timeout for enable/disable test mode, which is synchronous
+constexpr std::chrono::duration ktestModeTimeOut = std::chrono::seconds(5);
 
 enum class HalErrorCode : int32_t {
   OPERATION_FAILED = -1,
   INVALID_RESULT = -2,
+  INVALID_ARGUMENT = -3,
 };
 
 bool isValidContextHubId(uint32_t hubId) {
@@ -341,14 +344,14 @@ ScopedAStatus MultiClientContextHubBase::onHostEndpointConnected(
       break;
     default:
       LOGE("Unsupported host endpoint type %" PRIu32, info.type);
-      return ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+      return fromServiceError(HalErrorCode::INVALID_ARGUMENT);
   }
 
   uint16_t endpointId = info.hostEndpointId;
   if (!mHalClientManager->registerEndpointId(info.hostEndpointId) ||
       !mHalClientManager->mutateEndpointIdFromHostIfNeeded(
           AIBinder_getCallingPid(), endpointId)) {
-    return ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+    return fromServiceError(HalErrorCode::INVALID_ARGUMENT);
   }
   flatbuffers::FlatBufferBuilder builder(64);
   HostProtocolHost::encodeHostEndpointConnected(
@@ -380,9 +383,58 @@ ScopedAStatus MultiClientContextHubBase::onNanSessionStateChanged(
   return ndk::ScopedAStatus::ok();
 }
 
-ScopedAStatus MultiClientContextHubBase::setTestMode(bool /*enable*/) {
-  // To be implemented.
-  return ScopedAStatus::ok();
+ScopedAStatus MultiClientContextHubBase::setTestMode(bool enable) {
+  return fromResult(enable ? enableTestMode() : disableTestMode());
+}
+
+bool MultiClientContextHubBase::enableTestMode() {
+  std::unique_lock<std::mutex> lock(mTestModeMutex);
+  if (mIsTestModeEnabled) {
+    return true;
+  }
+  mTestModeNanoapps.reset();
+  if (!queryNanoapps(kDefaultHubId).isOk()) {
+    LOGE("Failed to get a list of loaded nanoapps.");
+    mTestModeNanoapps.emplace();
+    return false;
+  }
+  mEnableTestModeCv.wait_for(lock, ktestModeTimeOut,
+                             [&]() { return mTestModeNanoapps.has_value(); });
+  for (const auto &appId : *mTestModeNanoapps) {
+    if (!unloadNanoapp(kDefaultHubId, appId, mTestModeTransactionId).isOk()) {
+      LOGE("Failed to unload nanoapp 0x%" PRIx64 " to enable the test mode.",
+           appId);
+      return false;
+    }
+    mTestModeSyncUnloadResult.reset();
+    mEnableTestModeCv.wait_for(lock, ktestModeTimeOut, [&]() {
+      return mTestModeSyncUnloadResult.has_value();
+    });
+    if (!*mTestModeSyncUnloadResult) {
+      LOGE("Failed to unload nanoapp 0x%" PRIx64 " to enable the test mode.",
+           appId);
+      return false;
+    }
+  }
+  mIsTestModeEnabled = true;
+  return true;
+}
+
+bool MultiClientContextHubBase::disableTestMode() {
+  std::unique_lock<std::mutex> lock(mTestModeMutex);
+  if (!mIsTestModeEnabled) {
+    return true;
+  }
+  if (mTestModeNanoapps.has_value() && !mTestModeNanoapps->empty()) {
+    if (!mPreloadedNanoappLoader->loadPreloadedNanoapps(*mTestModeNanoapps)) {
+      LOGE("Failed to reload the nanoapps to disable the test mode.");
+      return false;
+    }
+  }
+  mTestModeNanoapps.emplace();
+  mTestModeTransactionId = static_cast<int32_t>(kDefaultTestModeTransactionId);
+  mIsTestModeEnabled = false;
+  return true;
 }
 
 void MultiClientContextHubBase::handleMessageFromChre(
@@ -498,6 +550,17 @@ void MultiClientContextHubBase::onNanoappListResponse(
     appInfo.rpcServices = rpcServices;
     appInfoList.push_back(appInfo);
   }
+  {
+    std::unique_lock<std::mutex> lock(mTestModeMutex);
+    if (!mTestModeNanoapps.has_value()) {
+      mTestModeNanoapps.emplace();
+      for (const auto &appInfo : appInfoList) {
+        mTestModeNanoapps->insert(appInfo.nanoappId);
+      }
+      mEnableTestModeCv.notify_all();
+    }
+  }
+
   callback->handleNanoappInfo(appInfoList);
 }
 
@@ -552,6 +615,14 @@ void MultiClientContextHubBase::onNanoappUnloadResponse(
     const fbs::UnloadNanoappResponseT &response, HalClientId clientId) {
   if (mHalClientManager->resetPendingUnloadTransaction(
           clientId, response.transaction_id)) {
+    {
+      std::unique_lock<std::mutex> lock(mTestModeMutex);
+      if (response.transaction_id == mTestModeTransactionId) {
+        mTestModeSyncUnloadResult.emplace(response.success);
+        mEnableTestModeCv.notify_all();
+        return;
+      }
+    }
     if (auto callback = mHalClientManager->getCallback(clientId);
         callback != nullptr) {
       callback->handleTransactionResult(response.transaction_id,
