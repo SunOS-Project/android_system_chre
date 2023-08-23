@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-// IWYU pragma: private, include "chre_api/chre.h"
-// IWYU pragma: friend chre/.*\.h
-
 #ifndef CHRE_TOOLCHAIN_H_
 #define CHRE_TOOLCHAIN_H_
 
