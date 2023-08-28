@@ -41,6 +41,10 @@ AppManager::AppManager() {
       false /* report_total_thread_cycles */, true /* printCsvFormat */);
 #endif
 }
+bool AppManager::IsInitialized() {
+  // AppManager initialized successfully only when BLE scan is available.
+  return ble_scanner_.isAvailable();
+}
 
 void AppManager::HandleEvent(uint32_t sender_instance_id, uint16_t event_type,
                              const void *event_data) {
@@ -444,8 +448,11 @@ bool AppManager::UpdateFilterExtension(const chreMessageFromHostData *event) {
       }
       filter_extension_.Update(host_info, *event, &generic_filters,
                                &config_result);
-      if (!ble_scanner_.UpdateFilters(event->hostEndpoint, &generic_filters)) {
-        config_result.result = CHREX_NEARBY_RESULT_INTERNAL_ERROR;
+      if (config_result.result == CHREX_NEARBY_RESULT_OK) {
+        if (!ble_scanner_.UpdateFilters(event->hostEndpoint,
+                                        &generic_filters)) {
+          config_result.result = CHREX_NEARBY_RESULT_INTERNAL_ERROR;
+        }
       }
     } else {
       LOGE("host package name invalid.");
