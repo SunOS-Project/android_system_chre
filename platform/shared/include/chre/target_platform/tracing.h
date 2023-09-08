@@ -14,24 +14,22 @@
  * limitations under the License.
  */
 
-#include "mbedtls_memory.h"
+#ifndef CHRE_PLATFORM_SHARED_TRACING_H_
+#define CHRE_PLATFORM_SHARED_TRACING_H_
 
-#include <stdint.h>
-#include <string.h>
-#include "chre/platform/memory.h"
+#include "pw_trace/trace.h"
 
-void *mbedtlsMemoryCalloc(size_t nItems, size_t itemSize) {
-  if (nItems == 0 || itemSize == 0 || SIZE_MAX / nItems < itemSize) {
-    return nullptr;
-  }
-  size_t totalSize = nItems * itemSize;
-  void *ptr = chre::memoryAlloc(totalSize);
-  if (ptr != nullptr) {
-    memset(ptr, 0, totalSize);
-  }
-  return ptr;
-}
+#define CHRE_TRACE_INSTANT(str, ...) PW_TRACE_INSTANT(str, ##__VA_ARGS__)
 
-void mbedtlsMemoryFree(void *ptr) {
-  chre::memoryFree(ptr);
-}
+#define CHRE_TRACE_START(str, ...) PW_TRACE_START(str, ##__VA_ARGS__)
+
+#define CHRE_TRACE_END(str, ...) PW_TRACE_END(str, ##__VA_ARGS__)
+
+#define CHRE_TRACE_INSTANT_DATA(str, ...) \
+  PW_TRACE_INSTANT_DATA(str, ##__VA_ARGS__)
+
+#define CHRE_TRACE_START_DATA(str, ...) PW_TRACE_START_DATA(str, ##__VA_ARGS__)
+
+#define CHRE_TRACE_END_DATA(str, ...) PW_TRACE_END_DATA(str, ##__VA_ARGS__)
+
+#endif  // CHRE_PLATFORM_SHARED_TRACING_H_
