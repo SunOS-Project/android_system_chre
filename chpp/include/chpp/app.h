@@ -120,6 +120,14 @@ extern "C" {
 #define CHPP_APP_COMMAND_NONE 0
 
 /**
+ * Type of endpoint (either client or service)
+ */
+enum ChppEndpointType {
+  CHPP_ENDPOINT_CLIENT = 0,
+  CHPP_ENDPOINT_SERVICE = 1,
+};
+
+/**
  * Handle Numbers in ChppAppHeader
  */
 enum ChppHandleNumber {
@@ -330,7 +338,7 @@ struct ChppService {
 
   //! Number of outgoing requests supported by this service.
   //! ChppAppHeader.command must be in the range [0, outReqCount - 1]
-  //! ChppServiceState.outReqStates must contains that many elements.
+  //! ChppEndpointState.outReqStates must contains that many elements.
   uint16_t outReqCount;
 
   //! Minimum valid length of datagrams for the service:
@@ -387,7 +395,7 @@ struct ChppClient {
 
   //! Number of outgoing requests supported by this client.
   //! ChppAppHeader.command must be in the range [0, outReqCount - 1]
-  //! ChppClientState.outReqStates must contains that many elements.
+  //! ChppEndpointState.outReqStates must contains that many elements.
   uint16_t outReqCount;
 
   //! Minimum valid length of datagrams for the service:
@@ -411,7 +419,7 @@ enum ChppRequestState {
  * State of each outgoing request and their response.
  *
  * There must be as many ChppOutgoingRequestState in the client or service state
- * (ChppClientState or ChppServiceState) as the number of commands they support.
+ * (ChppEndpointState) as the number of commands they support.
  */
 struct ChppOutgoingRequestState {
   uint64_t requestTimeNs;  // Time of the last request
@@ -431,8 +439,8 @@ struct ChppOutgoingRequestState {
  * as the number of commands supported by the other side (corresponding service
  * for a client and corresponding client for a service).
  *
- * Contrary to ChppOutgoingRequestState those are not part of ChppClientState
- * nor ChppServiceState. They must be stored to and retrieved from the context
+ * Contrary to ChppOutgoingRequestState those are not part of
+ * CChppEndpointState. They must be stored to and retrieved from the context
  * passed to chppRegisterClient / chppRegisterService.
  *
  * Note: while ChppIncomingRequestState and ChppOutgoingRequestState have the
@@ -464,6 +472,36 @@ struct ChppClientServiceSet {
 struct ChppLoopbackClientState;
 struct ChppTimesyncClientState;
 
+/**
+ * CHPP state of a client or a service.
+ *
+ * This is the CHPP internal client/service state.
+ * Their private state is store in the context field.
+ */
+struct ChppEndpointState {
+  struct ChppAppState *appContext;  // Pointer to app layer context
+
+  // State for the outgoing requests.
+  // It must accommodate Chpp{Client,Service}.outReqCount elements.
+  // It also tracks corresponding incoming responses.
+  // NULL when outReqCount = 0.
+  struct ChppOutgoingRequestState *outReqStates;
+
+  void *context;  //!< Private state of the endpoint.
+
+  struct ChppSyncResponse syncResponse;
+
+  uint8_t index;        //!< Index (in ChppAppState lists).
+  uint8_t handle;       //!< Handle used to match client and service.
+  uint8_t transaction;  //!< Next Transaction ID to be used.
+
+  uint8_t openState;  //!< see enum ChppOpenState
+
+  bool pseudoOpen : 1;       //!< Client to be opened upon a reset
+  bool initialized : 1;      //!< Client is initialized
+  bool everInitialized : 1;  //!< Client sync primitives initialized
+};
+
 struct ChppAppState {
   struct ChppTransportState *transportContext;  // Pointing to transport context
 
@@ -473,19 +511,14 @@ struct ChppAppState {
 
   const struct ChppService *registeredServices[CHPP_MAX_REGISTERED_SERVICES];
 
-  const struct ChppServiceState
+  struct ChppEndpointState
       *registeredServiceStates[CHPP_MAX_REGISTERED_SERVICES];
-
-  void *registeredServiceContexts[CHPP_MAX_REGISTERED_SERVICES];
 
   uint8_t registeredClientCount;  // Number of clients currently registered
 
   const struct ChppClient *registeredClients[CHPP_MAX_REGISTERED_CLIENTS];
 
-  const struct ChppClientState
-      *registeredClientStates[CHPP_MAX_REGISTERED_CLIENTS];
-
-  void *registeredClientContexts[CHPP_MAX_REGISTERED_CLIENTS];
+  struct ChppEndpointState *registeredClientStates[CHPP_MAX_REGISTERED_CLIENTS];
 
   // When the first outstanding request sent from the client timeouts.
   uint64_t nextClientRequestTimeoutNs;
@@ -797,6 +830,74 @@ bool chppSendTimestampedRequestOrFail(
 bool chppWaitForResponseWithTimeout(
     struct ChppSyncResponse *syncResponse,
     struct ChppOutgoingRequestState *outReqState, uint64_t timeoutNs);
+
+/**
+ * Returns the state of a registered endpoint.
+ *
+ * @param appState State of the app layer.
+ * @param index Index of the client or service.
+ * @param type Type of the endpoint to return.
+ * @return state of the client or service.
+ */
+struct ChppEndpointState *getRegisteredEndpointState(
+    struct ChppAppState *appState, uint8_t index, enum ChppEndpointType type);
+
+/**
+ * Returns the number of possible outgoing requests.
+ *
+ * @param appState State of the app layer.
+ * @param index Index of the client or service.
+ * @param type Type of the endpoint to return.
+ * @return The number of possible outgoing requests.
+ */
+uint16_t getRegisteredEndpointOutReqCount(struct ChppAppState *appState,
+                                          uint8_t index,
+                                          enum ChppEndpointType type);
+
+/**
+ * Returns the number of registered endpoints of the given type.
+ *
+ * @param appState State of the app layer.
+ * @param type Type of the endpoint to return.
+ * @return The number of endpoints.
+ */
+uint8_t getRegisteredEndpointCount(struct ChppAppState *appState,
+                                   enum ChppEndpointType type);
+
+/**
+ * Recalculates the next upcoming request timeout.
+ *
+ * The timeout is updated in the app layer state.
+ *
+ * @param appState State of the app layer.
+ * @param type Type of the endpoint.
+ */
+void chppRecalculateNextTimeout(struct ChppAppState *appState,
+                                enum ChppEndpointType type);
+
+/**
+ * Returns a pointer to the next request timeout for the given endpoint type.
+ *
+ * @param appState State of the app layer.
+ * @param type Type of the endpoint.
+ * @return Pointer to the timeout in nanoseconds.
+ */
+uint64_t *getNextRequestTimeoutNs(struct ChppAppState *appState,
+                                  enum ChppEndpointType type);
+
+/**
+ * Closes any remaining open requests by simulating a timeout.
+ *
+ * This function is used when an endpoint is reset.
+ *
+ * @param endpointState State of the endpoint.
+ * @param type The type of the endpoint.
+ * @param clearOnly If true, indicates that a timeout response shouldn't be
+ *        sent. This must only be set if the requests are being cleared as
+ *        part of the closing.
+ */
+void chppCloseOpenRequests(struct ChppEndpointState *endpointState,
+                           enum ChppEndpointType type, bool clearOnly);
 
 #ifdef __cplusplus
 }

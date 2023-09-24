@@ -65,13 +65,12 @@ static inline const struct ChppService *chppServiceOfHandle(
     struct ChppAppState *appContext, uint8_t handle);
 static inline const struct ChppClient *chppClientOfHandle(
     struct ChppAppState *appContext, uint8_t handle);
-static inline void *chppServiceContextOfHandle(struct ChppAppState *appContext,
-                                               uint8_t handle);
-static inline void *chppClientContextOfHandle(struct ChppAppState *appContext,
-                                              uint8_t handle);
-static void *chppClientServiceContextOfHandle(struct ChppAppState *appContext,
-                                              uint8_t handle,
-                                              enum ChppMessageType type);
+static inline struct ChppEndpointState *chppServiceStateOfHandle(
+    struct ChppAppState *appContext, uint8_t handle);
+static inline struct ChppEndpointState *chppClientStateOfHandle(
+    struct ChppAppState *appContext, uint8_t handle);
+static struct ChppEndpointState *chppClientOrServiceStateOfHandle(
+    struct ChppAppState *appContext, uint8_t handle, enum ChppMessageType type);
 
 static void chppProcessPredefinedHandleDatagram(struct ChppAppState *context,
                                                 uint8_t *buf, size_t len);
@@ -265,8 +264,9 @@ static bool chppDatagramLenIsOk(struct ChppAppState *context,
 
 /**
  * Returns the dispatch function of a particular negotiated client/service
- * handle and message type. This shall be null if it is unsupported by the
- * service.
+ * handle and message type.
+ *
+ * Returns null if it is unsupported by the service.
  *
  * @param context State of the app layer.
  * @param handle Handle number for the client/service.
@@ -281,16 +281,15 @@ ChppDispatchFunction *chppGetDispatchFunction(struct ChppAppState *context,
   CHPP_DEBUG_NOT_NULL(context);
   // chppDatagramLenIsOk() has already confirmed that the handle # is valid.
   // Therefore, no additional checks are necessary for chppClientOfHandle(),
-  // chppServiceOfHandle(), or chppClientServiceContextOfHandle().
+  // chppServiceOfHandle(), or chppClientOrServiceStateOfHandle().
 
   // Make sure the client is open before it can receive any message:
   switch (CHPP_APP_GET_MESSAGE_TYPE(type)) {
     case CHPP_MESSAGE_TYPE_SERVICE_RESPONSE:
     case CHPP_MESSAGE_TYPE_SERVICE_REQUEST:
     case CHPP_MESSAGE_TYPE_SERVICE_NOTIFICATION: {
-      struct ChppClientState *clientState =
-          (struct ChppClientState *)chppClientServiceContextOfHandle(
-              context, handle, type);
+      struct ChppEndpointState *clientState =
+          chppClientStateOfHandle(context, handle);
       if (clientState->openState == CHPP_OPEN_STATE_CLOSED) {
         CHPP_LOGE("RX service response but client closed");
         return NULL;
@@ -324,8 +323,9 @@ ChppDispatchFunction *chppGetDispatchFunction(struct ChppAppState *context,
 
 /**
  * Returns the reset notification function pointer of a particular negotiated
- * client. The function pointer will be set to null by clients that do not need
- * or support a reset notification.
+ * client.
+ *
+ * Returns null for clients that do not need or support a reset notification.
  *
  * @param context State of the app layer.
  * @param index Index of the registered client.
@@ -339,9 +339,9 @@ ChppNotifierFunction *chppGetClientResetNotifierFunction(
 }
 
 /**
- * Returns the reset function pointer of a particular registered service. The
- * function pointer will be set to null by services that do not need or support
- * a reset notification.
+ * Returns the reset function pointer of a particular registered service.
+ *
+ * Returns null for services that do not need or support a reset notification.
  *
  * @param context State of the app layer.
  * @param index Index of the registered service.
@@ -356,7 +356,9 @@ ChppNotifierFunction *chppGetServiceResetNotifierFunction(
 
 /**
  * Returns a pointer to the ChppService struct of the service matched to a
- * negotiated handle. Returns null if a service doesn't exist for the handle.
+ * negotiated handle.
+ *
+ * Returns null if a service doesn't exist for the handle.
  *
  * @param context State of the app layer.
  * @param handle Handle number.
@@ -376,7 +378,9 @@ static inline const struct ChppService *chppServiceOfHandle(
 
 /**
  * Returns a pointer to the ChppClient struct of the client matched to a
- * negotiated handle. Returns null if a client doesn't exist for the handle.
+ * negotiated handle.
+ *
+ * Returns null if a client doesn't exist for the handle.
  *
  * @param context State of the app layer.
  * @param handle Handle number.
@@ -398,67 +402,68 @@ static inline const struct ChppClient *chppClientOfHandle(
 }
 
 /**
- * Returns a pointer to the service struct of a particular negotiated service
- * handle.
- * It is up to the caller to ensure the handle number is valid.
+ * Returns the service state for a given handle.
+ *
+ * The caller must pass a valid handle.
  *
  * @param context State of the app layer.
  * @param handle Handle number for the service.
  *
- * @return Pointer to the context struct of the service.
+ * @return Pointer to a ChppEndpointState.
  */
-static inline void *chppServiceContextOfHandle(struct ChppAppState *context,
-                                               uint8_t handle) {
+static inline struct ChppEndpointState *chppServiceStateOfHandle(
+    struct ChppAppState *context, uint8_t handle) {
   CHPP_DEBUG_NOT_NULL(context);
   CHPP_DEBUG_ASSERT(CHPP_SERVICE_INDEX_OF_HANDLE(handle) <
                     context->registeredServiceCount);
-  return context
-      ->registeredServiceContexts[CHPP_SERVICE_INDEX_OF_HANDLE(handle)];
+
+  const uint8_t serviceIdx = CHPP_SERVICE_INDEX_OF_HANDLE(handle);
+  return context->registeredServiceStates[serviceIdx];
 }
 
 /**
- * Returns a pointer to the client struct of a particular negotiated client
- * handle.
- * It is up to the caller to ensure the handle number is valid.
+ * Returns a pointer to the client state for a given handle.
+ *
+ * The caller must pass a valid handle.
  *
  * @param context State of the app layer.
  * @param handle Handle number for the service.
  *
- * @return Pointer to the ChppService struct of the client.
+ * @return Pointer to the endpoint state.
  */
-static inline void *chppClientContextOfHandle(struct ChppAppState *context,
-                                              uint8_t handle) {
+static inline struct ChppEndpointState *chppClientStateOfHandle(
+    struct ChppAppState *context, uint8_t handle) {
   CHPP_DEBUG_NOT_NULL(context);
   CHPP_DEBUG_ASSERT(CHPP_SERVICE_INDEX_OF_HANDLE(handle) <
                     context->registeredClientCount);
-  return context
-      ->registeredClientContexts[context->clientIndexOfServiceIndex
-                                     [CHPP_SERVICE_INDEX_OF_HANDLE(handle)]];
+  const uint8_t serviceIdx = CHPP_SERVICE_INDEX_OF_HANDLE(handle);
+  const uint8_t clientIdx = context->clientIndexOfServiceIndex[serviceIdx];
+  return context->registeredClientStates[clientIdx]->context;
 }
 
 /**
- * Returns a pointer to the client/service struct of a particular negotiated
- * client/service handle.
- * It is up to the caller to ensure the handle number is valid.
+ * Returns a pointer to the client or service state for a given handle.
+ *
+ * The caller must pass a valid handle.
  *
  * @param appContext State of the app layer.
  * @param handle Handle number for the service.
  * @param type Message type (indicates if this is for a client or service).
  *
- * @return Pointer to the client/service struct of the service handle.
+ * @return Pointer to the endpoint state (NULL if wrong type).
  */
-static void *chppClientServiceContextOfHandle(struct ChppAppState *appContext,
-                                              uint8_t handle,
-                                              enum ChppMessageType type) {
+static struct ChppEndpointState *chppClientOrServiceStateOfHandle(
+    struct ChppAppState *appContext, uint8_t handle,
+    enum ChppMessageType type) {
   switch (CHPP_APP_GET_MESSAGE_TYPE(type)) {
     case CHPP_MESSAGE_TYPE_CLIENT_REQUEST:
     case CHPP_MESSAGE_TYPE_CLIENT_RESPONSE:
     case CHPP_MESSAGE_TYPE_CLIENT_NOTIFICATION:
-      return chppServiceContextOfHandle(appContext, handle);
+      return chppServiceStateOfHandle(appContext, handle);
     case CHPP_MESSAGE_TYPE_SERVICE_REQUEST:
     case CHPP_MESSAGE_TYPE_SERVICE_RESPONSE:
     case CHPP_MESSAGE_TYPE_SERVICE_NOTIFICATION:
-      return chppClientContextOfHandle(appContext, handle);
+      return chppClientStateOfHandle(appContext, handle);
     default:
       CHPP_LOGE("Unknown type=0x%" PRIx8 " (H#%" PRIu8 ")", type, handle);
       return NULL;
@@ -525,11 +530,11 @@ static void chppProcessNegotiatedHandleDatagram(struct ChppAppState *appContext,
   struct ChppAppHeader *rxHeader = (struct ChppAppHeader *)buf;
   enum ChppMessageType messageType = CHPP_APP_GET_MESSAGE_TYPE(rxHeader->type);
 
-  // Could be either the client or the service context depending on the message
+  // Could be either the client or the service state depending on the message
   // type.
-  void *cltOrSvcContext = chppClientServiceContextOfHandle(
+  struct ChppEndpointState *endpointState = chppClientOrServiceStateOfHandle(
       appContext, rxHeader->handle, messageType);
-  if (cltOrSvcContext == NULL) {
+  if (endpointState == NULL) {
     CHPP_LOGE("H#%" PRIu8 " missing ctx (msg=0x%" PRIx8 " len=%" PRIuSIZE
               ", ID=%" PRIu8 ")",
               rxHeader->handle, rxHeader->type, len, rxHeader->transaction);
@@ -551,7 +556,7 @@ static void chppProcessNegotiatedHandleDatagram(struct ChppAppState *appContext,
   }
 
   // All good. Dispatch datagram and possibly notify a waiting client
-  enum ChppAppErrorCode error = dispatchFunc(cltOrSvcContext, buf, len);
+  enum ChppAppErrorCode error = dispatchFunc(endpointState->context, buf, len);
 
   if (error != CHPP_APP_ERROR_NONE) {
     CHPP_LOGE("RX dispatch err=0x%" PRIx16 " H#%" PRIu8 " type=0x%" PRIx8
@@ -577,11 +582,7 @@ static void chppProcessNegotiatedHandleDatagram(struct ChppAppState *appContext,
   // Check for synchronous operation and notify waiting client if needed.
   if (messageType == CHPP_MESSAGE_TYPE_SERVICE_RESPONSE ||
       messageType == CHPP_MESSAGE_TYPE_CLIENT_RESPONSE) {
-    struct ChppSyncResponse *syncResponse =
-        messageType == CHPP_MESSAGE_TYPE_SERVICE_RESPONSE
-            ? &((struct ChppClientState *)cltOrSvcContext)->syncResponse
-            : &((struct ChppServiceState *)cltOrSvcContext)->syncResponse;
-
+    struct ChppSyncResponse *syncResponse = &endpointState->syncResponse;
     chppMutexLock(&syncResponse->mutex);
     syncResponse->ready = true;
     CHPP_LOGD("Finished dispatching a response -> synchronous notification");
@@ -713,7 +714,8 @@ void chppAppProcessReset(struct ChppAppState *context) {
                   (ResetNotifierFunction != NULL));
 
         if (ResetNotifierFunction != NULL) {
-          ResetNotifierFunction(context->registeredClientContexts[clientIndex]);
+          ResetNotifierFunction(
+              context->registeredClientStates[clientIndex]->context);
         }
       }
     }
@@ -729,7 +731,7 @@ void chppAppProcessReset(struct ChppAppState *context) {
               CHPP_SERVICE_HANDLE_OF_INDEX(i), (ResetNotifierFunction != NULL));
 
     if (ResetNotifierFunction != NULL) {
-      ResetNotifierFunction(context->registeredServiceContexts[i]);
+      ResetNotifierFunction(context->registeredServiceStates[i]->context);
     }
   }
 
@@ -867,10 +869,13 @@ void chppTimestampOutgoingRequest(struct ChppAppState *appState,
   CHPP_DEBUG_NOT_NULL(appState);
   CHPP_DEBUG_NOT_NULL(outReqState);
   CHPP_DEBUG_NOT_NULL(requestHeader);
-  uint8_t type = requestHeader->type;
+  enum ChppMessageType msgType = requestHeader->type;
+  enum ChppEndpointType endpointType =
+      msgType == CHPP_MESSAGE_TYPE_CLIENT_REQUEST ? CHPP_ENDPOINT_CLIENT
+                                                  : CHPP_ENDPOINT_SERVICE;
 
-  CHPP_ASSERT(type == CHPP_MESSAGE_TYPE_CLIENT_REQUEST ||
-              type == CHPP_MESSAGE_TYPE_SERVICE_REQUEST);
+  CHPP_ASSERT(msgType == CHPP_MESSAGE_TYPE_CLIENT_REQUEST ||
+              msgType == CHPP_MESSAGE_TYPE_SERVICE_REQUEST);
 
   if (outReqState->requestState == CHPP_REQUEST_STATE_REQUEST_SENT) {
     CHPP_LOGE("Dupe req ID=%" PRIu8 " existing ID=%" PRIu8 " from t=%" PRIu64,
@@ -879,20 +884,15 @@ void chppTimestampOutgoingRequest(struct ChppAppState *appState,
 
     // Clear a possible pending timeout from the previous request
     outReqState->responseTimeNs = CHPP_TIME_MAX;
-    if (type == CHPP_MESSAGE_TYPE_CLIENT_REQUEST) {
-      chppClientRecalculateNextTimeout(appState);
-    } else {
-      chppServiceRecalculateNextTimeout(appState);
-    }
+    chppRecalculateNextTimeout(appState, endpointType);
   }
 
   outReqState->requestTimeNs = chppGetCurrentTimeNs();
   outReqState->requestState = CHPP_REQUEST_STATE_REQUEST_SENT;
   outReqState->transaction = requestHeader->transaction;
 
-  uint64_t *nextRequestTimeoutNs = type == CHPP_MESSAGE_TYPE_CLIENT_REQUEST
-                                       ? &appState->nextClientRequestTimeoutNs
-                                       : &appState->nextServiceRequestTimeoutNs;
+  uint64_t *nextRequestTimeoutNs =
+      getNextRequestTimeoutNs(appState, endpointType);
 
   if (timeoutNs == CHPP_REQUEST_TIMEOUT_INFINITE) {
     outReqState->responseTimeNs = CHPP_TIME_MAX;
@@ -983,15 +983,12 @@ bool chppTimestampIncomingResponse(struct ChppAppState *appState,
     // When the received request is the next one that was expected
     // to timeout we need to recompute the timeout considering the
     // other pending requests.
-    if (type == CHPP_MESSAGE_TYPE_SERVICE_RESPONSE) {
-      if (outReqState->responseTimeNs == appState->nextClientRequestTimeoutNs) {
-        chppClientRecalculateNextTimeout(appState);
-      }
-    } else {
-      if (outReqState->responseTimeNs ==
-          appState->nextServiceRequestTimeoutNs) {
-        chppServiceRecalculateNextTimeout(appState);
-      }
+    enum ChppEndpointType endpointType =
+        type == CHPP_MESSAGE_TYPE_SERVICE_RESPONSE ? CHPP_ENDPOINT_CLIENT
+                                                   : CHPP_ENDPOINT_SERVICE;
+    if (outReqState->responseTimeNs ==
+        *getNextRequestTimeoutNs(appState, endpointType)) {
+      chppRecalculateNextTimeout(appState, endpointType);
     }
     outReqState->responseTimeNs = responseTime;
   }
@@ -1086,4 +1083,117 @@ bool chppWaitForResponseWithTimeout(
   chppMutexUnlock(&syncResponse->mutex);
 
   return result;
+}
+
+struct ChppEndpointState *getRegisteredEndpointState(
+    struct ChppAppState *appState, uint8_t index, enum ChppEndpointType type) {
+  CHPP_DEBUG_NOT_NULL(appState);
+  CHPP_DEBUG_ASSERT(index < getRegisteredEndpointCount(appState, type));
+
+  return type == CHPP_ENDPOINT_CLIENT
+             ? appState->registeredClientStates[index]
+             : appState->registeredServiceStates[index];
+}
+
+uint16_t getRegisteredEndpointOutReqCount(struct ChppAppState *appState,
+                                          uint8_t index,
+                                          enum ChppEndpointType type) {
+  CHPP_DEBUG_NOT_NULL(appState);
+  CHPP_DEBUG_ASSERT(index < getRegisteredEndpointCount(appState, type));
+
+  return type == CHPP_ENDPOINT_CLIENT
+             ? appState->registeredClients[index]->outReqCount
+             : appState->registeredServices[index]->outReqCount;
+}
+
+uint8_t getRegisteredEndpointCount(struct ChppAppState *appState,
+                                   enum ChppEndpointType type) {
+  return type == CHPP_ENDPOINT_CLIENT ? appState->registeredClientCount
+                                      : appState->registeredServiceCount;
+}
+
+void chppRecalculateNextTimeout(struct ChppAppState *appState,
+                                enum ChppEndpointType type) {
+  CHPP_DEBUG_NOT_NULL(appState);
+
+  uint64_t timeoutNs = CHPP_TIME_MAX;
+
+  const uint8_t endpointCount = getRegisteredEndpointCount(appState, type);
+
+  for (uint8_t endpointIdx = 0; endpointIdx < endpointCount; endpointIdx++) {
+    uint16_t reqCount =
+        getRegisteredEndpointOutReqCount(appState, endpointIdx, type);
+    struct ChppEndpointState *endpointState =
+        getRegisteredEndpointState(appState, endpointIdx, type);
+    struct ChppOutgoingRequestState *reqStates = endpointState->outReqStates;
+    for (uint16_t cmdIdx = 0; cmdIdx < reqCount; cmdIdx++) {
+      struct ChppOutgoingRequestState *reqState = &reqStates[cmdIdx];
+
+      if (reqState->requestState == CHPP_REQUEST_STATE_REQUEST_SENT) {
+        timeoutNs = MIN(timeoutNs, reqState->responseTimeNs);
+      }
+    }
+  }
+
+  CHPP_LOGD("nextReqTimeout=%" PRIu64, timeoutNs / CHPP_NSEC_PER_MSEC);
+
+  if (type == CHPP_ENDPOINT_CLIENT) {
+    appState->nextClientRequestTimeoutNs = timeoutNs;
+  } else {
+    appState->nextServiceRequestTimeoutNs = timeoutNs;
+  }
+}
+
+uint64_t *getNextRequestTimeoutNs(struct ChppAppState *appState,
+                                  enum ChppEndpointType type) {
+  return type == CHPP_ENDPOINT_CLIENT ? &appState->nextClientRequestTimeoutNs
+                                      : &appState->nextServiceRequestTimeoutNs;
+}
+
+void chppCloseOpenRequests(struct ChppEndpointState *endpointState,
+                           enum ChppEndpointType type, bool clearOnly) {
+  CHPP_DEBUG_NOT_NULL(endpointState);
+
+  bool recalcNeeded = false;
+
+  struct ChppAppState *appState = endpointState->appContext;
+  const uint8_t enpointIdx = endpointState->index;
+  const uint16_t cmdCount =
+      getRegisteredEndpointOutReqCount(appState, enpointIdx, type);
+
+  for (uint16_t cmdIdx = 0; cmdIdx < cmdCount; cmdIdx++) {
+    if (endpointState->outReqStates[cmdIdx].requestState ==
+        CHPP_REQUEST_STATE_REQUEST_SENT) {
+      recalcNeeded = true;
+
+      CHPP_LOGE("Closing open req #%" PRIu16 " clear %d", cmdIdx, clearOnly);
+
+      if (clearOnly) {
+        endpointState->outReqStates[cmdIdx].requestState =
+            CHPP_REQUEST_STATE_RESPONSE_TIMEOUT;
+      } else {
+        struct ChppAppHeader *response =
+            chppMalloc(sizeof(struct ChppAppHeader));
+        if (response == NULL) {
+          CHPP_LOG_OOM();
+        } else {
+          // Simulate receiving a timeout response.
+          response->handle = endpointState->handle;
+          response->type = type == CHPP_ENDPOINT_CLIENT
+                               ? CHPP_MESSAGE_TYPE_SERVICE_RESPONSE
+                               : CHPP_MESSAGE_TYPE_CLIENT_RESPONSE;
+          response->transaction =
+              endpointState->outReqStates[cmdIdx].transaction;
+          response->error = CHPP_APP_ERROR_TIMEOUT;
+          response->command = cmdIdx;
+
+          chppAppProcessRxDatagram(appState, (uint8_t *)response,
+                                   sizeof(struct ChppAppHeader));
+        }
+      }
+    }
+  }
+  if (recalcNeeded) {
+    chppRecalculateNextTimeout(appState, type);
+  }
 }
