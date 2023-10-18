@@ -328,12 +328,16 @@ struct ChppService {
   ChppNotifierFunction *resetNotifierFunctionPtr;
 
   //! Dispatches incoming client requests.
+  //! When an error is returned by the dispatch function it is logged and an
+  //! error response is automatically sent to the remote endpoint.
   ChppDispatchFunction *requestDispatchFunctionPtr;
 
   //! Dispatches incoming client notifications.
+  //! Errors returned by the dispatch function are logged.
   ChppDispatchFunction *notificationDispatchFunctionPtr;
 
   //! Dispatches incoming client responses.
+  //! Errors returned by the dispatch function are logged.
   ChppDispatchFunction *responseDispatchFunctionPtr;
 
   //! Number of outgoing requests supported by this service.
@@ -375,15 +379,19 @@ struct ChppClient {
 
   //! Dispatches incoming service responses.
   //! Service responses are only dispatched to clients that have been opened or
-  //! are in the process of being (re)opened. @see ChppOpenState
+  //! are in the process of being (re)opened. @see ChppOpenState.
+  //! Errors returned by the dispatch function are logged.
   ChppDispatchFunction *responseDispatchFunctionPtr;
 
   //! Dispatches incoming service notifications.
   //! Service notifications are only dispatched to clients that have been
   //! opened. @see ChppOpenState
+  //! Errors returned by the dispatch function are logged.
   ChppDispatchFunction *notificationDispatchFunctionPtr;
 
   //! Dispatches incoming service requests.
+  //! When an error is returned by the dispatch function it is logged and an
+  //! error response is automatically sent to the remote endpoint.
   ChppDispatchFunction *requestDispatchFunctionPtr;
 
   //! Initializes the client (after it is matched with a service at discovery)
@@ -714,7 +722,7 @@ struct ChppAppHeader *chppAllocResponse(
  * @param requestHeader Request header.
  */
 void chppTimestampIncomingRequest(struct ChppIncomingRequestState *inReqState,
-                                  struct ChppAppHeader *requestHeader);
+                                  const struct ChppAppHeader *requestHeader);
 
 /**
  * This function shall be called for all outgoing requests in order to
@@ -732,7 +740,7 @@ void chppTimestampIncomingRequest(struct ChppIncomingRequestState *inReqState,
  */
 void chppTimestampOutgoingRequest(struct ChppAppState *appState,
                                   struct ChppOutgoingRequestState *outReqState,
-                                  struct ChppAppHeader *requestHeader,
+                                  const struct ChppAppHeader *requestHeader,
                                   uint64_t timeoutNs);
 
 /**
