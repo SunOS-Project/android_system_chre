@@ -138,9 +138,7 @@ struct ChppAppHeader *chppAllocServiceNotification(size_t len) {
 struct ChppAppHeader *chppAllocServiceRequest(
     struct ChppEndpointState *serviceState, size_t len) {
   CHPP_DEBUG_NOT_NULL(serviceState);
-  return chppAllocRequest(CHPP_MESSAGE_TYPE_SERVICE_REQUEST,
-                          serviceState->handle, &serviceState->transaction,
-                          len);
+  return chppAllocRequest(CHPP_MESSAGE_TYPE_SERVICE_REQUEST, serviceState, len);
 }
 
 struct ChppAppHeader *chppAllocServiceRequestCommand(
@@ -158,9 +156,8 @@ bool chppServiceSendTimestampedRequestOrFail(
     struct ChppEndpointState *serviceState,
     struct ChppOutgoingRequestState *outReqState, void *buf, size_t len,
     uint64_t timeoutNs) {
-  return chppSendTimestampedRequestOrFail(serviceState->appContext,
-                                          &serviceState->syncResponse,
-                                          outReqState, buf, len, timeoutNs);
+  return chppSendTimestampedRequestOrFail(serviceState, outReqState, buf, len,
+                                          timeoutNs);
 }
 
 bool chppServiceSendTimestampedRequestAndWait(

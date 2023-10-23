@@ -814,22 +814,23 @@ struct ChppAppHeader *chppAllocNotification(uint8_t type, size_t len) {
   return notification;
 }
 
-struct ChppAppHeader *chppAllocRequest(uint8_t type, uint8_t handle,
-                                       uint8_t *transaction, size_t len) {
+struct ChppAppHeader *chppAllocRequest(uint8_t type,
+                                       struct ChppEndpointState *endpointState,
+                                       size_t len) {
   CHPP_ASSERT(len >= sizeof(struct ChppAppHeader));
   CHPP_ASSERT(type == CHPP_MESSAGE_TYPE_CLIENT_REQUEST ||
               type == CHPP_MESSAGE_TYPE_SERVICE_REQUEST);
-  CHPP_DEBUG_NOT_NULL(transaction);
+  CHPP_DEBUG_NOT_NULL(endpointState);
 
   struct ChppAppHeader *request = chppMalloc(len);
   if (request != NULL) {
-    request->handle = handle;
+    request->handle = endpointState->handle;
     request->type = type;
-    request->transaction = *transaction;
+    request->transaction = endpointState->transaction;
     request->error = CHPP_APP_ERROR_NONE;
     request->command = CHPP_APP_COMMAND_NONE;
 
-    (*transaction)++;
+    endpointState->transaction++;
   } else {
     CHPP_LOG_OOM();
   }
@@ -1043,20 +1044,19 @@ bool chppSendTimestampedResponseOrFail(
 }
 
 bool chppSendTimestampedRequestOrFail(
-    struct ChppAppState *appState, struct ChppSyncResponse *syncResponse,
+    struct ChppEndpointState *endpointState,
     struct ChppOutgoingRequestState *outReqState, void *buf, size_t len,
     uint64_t timeoutNs) {
-  CHPP_DEBUG_NOT_NULL(appState);
-  CHPP_DEBUG_NOT_NULL(syncResponse);
   CHPP_DEBUG_NOT_NULL(outReqState);
   CHPP_DEBUG_NOT_NULL(buf);
   CHPP_ASSERT(len >= sizeof(struct ChppAppHeader));
 
-  chppTimestampOutgoingRequest(appState, outReqState, buf, timeoutNs);
-  syncResponse->ready = false;
+  chppTimestampOutgoingRequest(endpointState->appContext, outReqState, buf,
+                               timeoutNs);
+  endpointState->syncResponse.ready = false;
 
-  bool success =
-      chppEnqueueTxDatagramOrFail(appState->transportContext, buf, len);
+  bool success = chppEnqueueTxDatagramOrFail(
+      endpointState->appContext->transportContext, buf, len);
 
   // Failure to enqueue a TX datagram means that a request was known to be not
   // transmitted. We explicitly set requestState to be in the NONE state, so

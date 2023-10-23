@@ -300,8 +300,7 @@ void chppDeinitMatchedClients(struct ChppAppState *context) {
 struct ChppAppHeader *chppAllocClientRequest(
     struct ChppEndpointState *clientState, size_t len) {
   CHPP_DEBUG_NOT_NULL(clientState);
-  return chppAllocRequest(CHPP_MESSAGE_TYPE_CLIENT_REQUEST, clientState->handle,
-                          &clientState->transaction, len);
+  return chppAllocRequest(CHPP_MESSAGE_TYPE_CLIENT_REQUEST, clientState, len);
 }
 
 struct ChppAppHeader *chppAllocClientRequestCommand(
@@ -328,9 +327,8 @@ bool chppClientSendTimestampedRequestOrFail(
     return false;
   }
 
-  return chppSendTimestampedRequestOrFail(clientState->appContext,
-                                          &clientState->syncResponse,
-                                          outReqState, buf, len, timeoutNs);
+  return chppSendTimestampedRequestOrFail(clientState, outReqState, buf, len,
+                                          timeoutNs);
 }
 
 bool chppClientSendTimestampedRequestAndWait(

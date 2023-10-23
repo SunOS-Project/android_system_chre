@@ -683,16 +683,16 @@ struct ChppAppHeader *chppAllocNotification(uint8_t type, size_t len);
  *
  * @param type CHPP_MESSAGE_TYPE_CLIENT_REQUEST or
  *        CHPP_MESSAGE_TYPE_SERVICE_REQUEST.
- * @param handle client or service handle.
- * @param transaction the transaction (increment on each request).
+ * @param endpointState State of the endpoint.
  * @param len Length of the response message (including header) in bytes. Note
  *        that the specified length must be at least equal to the length of the
  *        app layer header.
  *
  * @return Pointer to allocated memory.
  */
-struct ChppAppHeader *chppAllocRequest(uint8_t type, uint8_t handle,
-                                       uint8_t *transaction, size_t len);
+struct ChppAppHeader *chppAllocRequest(uint8_t type,
+                                       struct ChppEndpointState *endpointState,
+                                       size_t len);
 
 /**
  * Allocates a response message of a specified length, populating the (app
@@ -718,7 +718,7 @@ struct ChppAppHeader *chppAllocResponse(
  * This function prints an error message if a duplicate request is received
  * while outstanding request is still pending without a response.
  *
- * @param inReqState State of the current request/response.
+ * @param inReqState State of the request/response.
  * @param requestHeader Request header.
  */
 void chppTimestampIncomingRequest(struct ChppIncomingRequestState *inReqState,
@@ -733,8 +733,7 @@ void chppTimestampIncomingRequest(struct ChppIncomingRequestState *inReqState,
  * while outstanding request is still pending without a response.
  *
  * @param appState App layer state.
- * @param outReqState state for each request/response
- *        functionality of a client.
+ * @param outReqState state of the request/response.
  * @param requestHeader Client request header.
  * @param timeoutNs The timeout.
  */
@@ -754,8 +753,7 @@ void chppTimestampOutgoingRequest(struct ChppAppState *appState,
  * outstanding request.
  *
  * @param appState App layer state.
- * @param outReqState state for each request/response
- *        functionality of a client.
+ * @param outReqState state of the request/response.
  * @param requestHeader Request header.
  *
  * @return false if there is an error. true otherwise.
@@ -774,7 +772,7 @@ bool chppTimestampIncomingResponse(struct ChppAppState *appState,
  * For most responses, it is expected that chppSendTimestampedResponseOrFail()
  * shall be used to both timestamp and send the response in one shot.
  *
- * @param inReqState State of the current request/response.
+ * @param inReqState State of the request/response.
  * @return The last response time (CHPP_TIME_NONE for the first response).
  */
 uint64_t chppTimestampOutgoingResponse(
@@ -790,7 +788,7 @@ uint64_t chppTimestampOutgoingResponse(
  * outstanding request.
  *
  * @param appState App layer state.
- * @param inReqState State of the current request/response.
+ * @param inReqState State of the request/response.
  * @param buf Datagram payload allocated through chppMalloc. Cannot be null.
  * @param len Datagram length in bytes.
  *
@@ -811,9 +809,8 @@ bool chppSendTimestampedResponseOrFail(
  * Note that the ownership of buf is taken from the caller when this method is
  * invoked.
  *
- * @param appState appLayerState.
- * @param syncResponse sync primitives.
- * @param outReqState state for each request/response.
+ * @param endpointState state of the endpoint.
+ * @param outReqState state of the request/response.
  * @param buf Datagram payload allocated through chppMalloc. Cannot be null.
  * @param len Datagram length in bytes.
  * @param timeoutNs Time in nanoseconds before a timeout response is generated.
@@ -824,7 +821,7 @@ bool chppSendTimestampedResponseOrFail(
  *         discarded.
  */
 bool chppSendTimestampedRequestOrFail(
-    struct ChppAppState *appState, struct ChppSyncResponse *syncResponse,
+    struct ChppEndpointState *endpointState,
     struct ChppOutgoingRequestState *outReqState, void *buf, size_t len,
     uint64_t timeoutNs);
 
@@ -832,7 +829,7 @@ bool chppSendTimestampedRequestOrFail(
  * Wait for a response to be received.
  *
  * @param syncResponse sync primitives.
- * @param outReqState state for each request/response.
+ * @param outReqState state of the request/response.
  * @param timeoutNs Time in nanoseconds before a timeout response is generated.
  */
 bool chppWaitForResponseWithTimeout(
