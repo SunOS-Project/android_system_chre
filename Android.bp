@@ -56,6 +56,70 @@ filegroup {
     ],
 }
 
+filegroup {
+    name: "contexthub_hal_common_srcs",
+    srcs: [
+        "host/common/file_stream.cc",
+        "host/common/fragmented_load_transaction.cc",
+        "host/common/host_protocol_host.cc",
+        "host/common/log.cc",
+        "platform/shared/host_protocol_common.cc",
+    ],
+}
+
+filegroup {
+    name: "contexthub_hal_client_srcs",
+    srcs: [
+        "host/common/hal_client.cc",
+        "host/common/pigweed/hal_channel_output.cc",
+        "host/common/pigweed/hal_rpc_client.cc",
+        "host/common/socket_client.cc",
+    ],
+}
+
+cc_defaults {
+    name: "contexthub_hal_defaults",
+    vendor: true,
+    srcs: [":contexthub_hal_common_srcs"],
+    include_dirs: [
+        "system/chre/host/common/include/",
+        "system/chre/host/hal_generic/aidl/",
+        "system/chre/host/hal_generic/common/",
+        "system/chre/platform/shared/include/",
+        "system/chre/util/include/",
+    ],
+    header_libs: [
+        "chre_api",
+        "chre_flatbuffers",
+    ],
+    shared_libs: [
+        "android.frameworks.stats-V2-ndk",
+        "android.hardware.contexthub-V4-ndk",
+        "chre_atoms_log",
+        "chremetrics-cpp",
+        "libaconfig_storage_read_api_cc",
+        "libbase",
+        "libbinder_ndk",
+        "libcutils",
+        "libjsoncpp",
+        "liblog",
+        "libprotobuf-cpp-lite",
+        "libutils",
+        "server_configurable_flags",
+    ],
+    static_libs: [
+        "chre_flags_c_lib",
+        "chre_metrics_reporter",
+        "event_logger",
+    ],
+    cflags: [
+        "-DCHRE_IS_HOST_BUILD",
+        "-DCHRE_MESSAGE_TO_HOST_MAX_SIZE=4000", // Needed to import CHRE APIs
+        "-Wall",
+        "-Werror",
+    ],
+}
+
 cc_library_static {
     name: "chre_client",
     vendor_available: true,
@@ -469,7 +533,7 @@ cc_library_static {
         "util/include",
     ],
     shared_libs: [
-        "android.hardware.contexthub-V3-ndk",
+        "android.hardware.contexthub-V4-ndk",
         "libcutils",
         "libutils",
     ],
@@ -528,7 +592,7 @@ cc_test_host {
         "util/include/",
     ],
     static_libs: [
-        "android.hardware.contexthub-V3-ndk",
+        "android.hardware.contexthub-V4-ndk",
         "chre_flags_c_lib",
         "chre_host_common",
         "event_logger",
@@ -537,7 +601,7 @@ cc_test_host {
     ],
     shared_libs: [
         "android.frameworks.stats-V2-ndk",
-        "android.hardware.contexthub-V3-ndk",
+        "android.hardware.contexthub-V4-ndk",
         "chre_atoms_log",
         "libaconfig_storage_read_api_cc",
         "libbase",
@@ -619,9 +683,6 @@ cc_library_headers {
     host_supported: true,
     export_include_dirs: [
         "external/flatbuffers/include",
-        "host/common/include",
-        "platform/shared/include",
-        "util/include",
     ],
 }
 
@@ -718,14 +779,6 @@ cc_test_host {
         "platform/shared/pw_trace/include",
         "util/include",
     ],
-    cflags: [
-        "-DCHRE_ASSERTIONS_ENABLED=true",
-        "-DCHRE_BLE_SUPPORT_ENABLED=true",
-        "-DCHRE_FILENAME=__FILE__",
-        "-DCHRE_MESSAGE_TO_HOST_MAX_SIZE=4096",
-        "-DCHRE_MINIMUM_LOG_LEVEL=CHRE_LOG_LEVEL_DEBUG",
-        "-DGTEST",
-    ],
     header_libs: [
         "chre_flatbuffers",
     ],
@@ -734,6 +787,9 @@ cc_test_host {
         "libgmock",
         "pw_allocator",
         "pw_containers",
+    ],
+    defaults: [
+        "chre_linux_cflags",
     ],
     sanitize: {
         address: true,
@@ -754,26 +810,54 @@ cc_defaults {
 // Lib dependencies for apps and libs using PW_RPC with nanopb.
 cc_defaults {
     name: "pw_rpc_nanopb_lib_dependencies",
-    defaults: [
-        "pw_android_common_backends",
-    ],
     static_libs: [
+        "pw_assert_log",
+        "pw_chrono_stl",
         "pw_containers",
+        "pw_log_android",
         "pw_protobuf",
         "pw_rpc_chre",
         "pw_rpc_nanopb_chre",
         "pw_status",
         "pw_stream",
+        "pw_sync_stl",
+        "pw_thread_stl",
         "pw_varint",
+    ],
+    export_static_lib_headers: [
+        "pw_assert_log",
+        "pw_chrono_stl",
+        "pw_log_android",
+        "pw_sync_stl",
+        "pw_thread_stl",
+    ],
+    shared_libs: [
+        "liblog",
     ],
 }
 
 cc_library_static {
     name: "pw_rpc_chre",
     defaults: [
-        "pw_android_common_backends",
         "pw_rpc_cflags_chre",
         "pw_rpc_defaults",
+    ],
+    static_libs: [
+        "pw_assert_log",
+        "pw_chrono_stl",
+        "pw_log_android",
+        "pw_sync_stl",
+        "pw_thread_stl",
+    ],
+    export_static_lib_headers: [
+        "pw_assert_log",
+        "pw_chrono_stl",
+        "pw_log_android",
+        "pw_sync_stl",
+        "pw_thread_stl",
+    ],
+    shared_libs: [
+        "liblog",
     ],
     host_supported: true,
     vendor_available: true,
@@ -862,12 +946,19 @@ cc_test_host {
     ],
     local_include_dirs: [
         "platform/shared",
+        "platform/shared/public_platform_ble_pal",
+        "platform/shared/public_platform_debug_dump_manager",
+        "platform/shared/public_platform_gnss_pal",
+        "platform/shared/public_platform_wifi_pal",
+        "platform/shared/public_platform_wwan_pal",
         "test/simulation/inc",
     ],
     static_libs: [
         "chre_linux",
         "chre_pal_linux",
         "libprotobuf-c-nano",
+        "pw_allocator",
+        "pw_containers",
     ],
     defaults: [
         "chre_linux_cflags",
@@ -965,6 +1056,11 @@ cc_library_static {
         "platform/linux/include",
         "platform/shared/audio_pal/include",
         "platform/shared/include",
+        "platform/shared/public_platform_ble_pal",
+        "platform/shared/public_platform_debug_dump_manager",
+        "platform/shared/public_platform_gnss_pal",
+        "platform/shared/public_platform_wifi_pal",
+        "platform/shared/public_platform_wwan_pal",
         "platform/shared/sensor_pal/include",
         "util/include",
     ],
