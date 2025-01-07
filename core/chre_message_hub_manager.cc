@@ -71,7 +71,7 @@ void ChreMessageHubManager::onMessageToNanoappCallback(
          data->messageToNanoapp.messagePermissions);
   } else if (!EventLoopManagerSingleton::get()
                   ->getEventLoop()
-                  .distributeEventSync(CHRE_EVENT_MESSAGE_FROM_ENDPOINT,
+                  .distributeEventSync(CHRE_EVENT_MSG_FROM_ENDPOINT,
                                        &data->messageToNanoapp,
                                        nanoapp->getInstanceId())) {
     LOGE("Unable to distribute message to nanoapp with ID 0x%" PRIx64,
@@ -104,7 +104,7 @@ void ChreMessageHubManager::onSessionClosedCallback(
 
   bool success =
       EventLoopManagerSingleton::get()->getEventLoop().distributeEventSync(
-          CHRE_EVENT_ENDPOINT_SESSION_CLOSED, &data->sessionClosedData,
+          CHRE_EVENT_MSG_SESSION_CLOSED, &data->sessionClosedData,
           nanoapp->getInstanceId());
   if (!success) {
     LOGE("Unable to process session closed event to nanoapp with ID 0x%" PRIx64,
@@ -113,7 +113,6 @@ void ChreMessageHubManager::onSessionClosedCallback(
 }
 
 bool ChreMessageHubManager::onMessageReceived(pw::UniquePtr<std::byte[]> &&data,
-                                              size_t length,
                                               uint32_t messageType,
                                               uint32_t messagePermissions,
                                               const Session &session,
@@ -129,7 +128,7 @@ bool ChreMessageHubManager::onMessageReceived(pw::UniquePtr<std::byte[]> &&data,
       .messageType = messageType,
       .messagePermissions = messagePermissions,
       .message = data.get(),
-      .messageSize = length,
+      .messageSize = data.size(),
       .sessionId = session.sessionId,
   };
   messageCallbackData->data = std::move(data);

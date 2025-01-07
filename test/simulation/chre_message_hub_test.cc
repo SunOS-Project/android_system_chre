@@ -79,7 +79,7 @@ class MessageHubCallbackStoreData : public MessageHubCallbackBase {
   MessageHubCallbackStoreData(Message *message, Session *session)
       : mMessage(message), mSession(session) {}
 
-  bool onMessageReceived(pw::UniquePtr<std::byte[]> &&data, size_t length,
+  bool onMessageReceived(pw::UniquePtr<std::byte[]> &&data,
                          uint32_t messageType, uint32_t messagePermissions,
                          const Session &session,
                          bool sentBySessionInitiator) override {
@@ -90,7 +90,6 @@ class MessageHubCallbackStoreData : public MessageHubCallbackBase {
           sentBySessionInitiator ? session.peer : session.initiator;
       mMessage->sessionId = session.sessionId;
       mMessage->data = std::move(data);
-      mMessage->length = length;
       mMessage->messageType = messageType;
       mMessage->messagePermissions = messagePermissions;
     }
@@ -194,11 +193,11 @@ class MessageTestApp : public TestNanoapp {
   void handleEvent(uint32_t, uint16_t eventType,
                    const void *eventData) override {
     switch (eventType) {
-      case CHRE_EVENT_MESSAGE_FROM_ENDPOINT: {
+      case CHRE_EVENT_MSG_FROM_ENDPOINT: {
         {
           std::unique_lock<std::mutex> lock(mMutex);
           auto *message =
-              static_cast<const struct chreMessageFromEndpointData *>(
+              static_cast<const struct chreMsgMessageFromEndpointData *>(
                   eventData);
           EXPECT_EQ(message->messageType, 1);
           EXPECT_EQ(message->messagePermissions, 0);
@@ -213,12 +212,11 @@ class MessageTestApp : public TestNanoapp {
         mCondVar.notify_one();
         break;
       }
-      case CHRE_EVENT_ENDPOINT_SESSION_CLOSED: {
+      case CHRE_EVENT_MSG_SESSION_CLOSED: {
         {
           std::unique_lock<std::mutex> lock(mMutex);
           auto *session =
-              static_cast<const struct chreEndpointSessionClosedData *>(
-                  eventData);
+              static_cast<const struct chreMsgSessionInfo *>(eventData);
           EXPECT_EQ(session->hubId, kOtherMessageHubId);
           EXPECT_EQ(session->endpointId, kEndpointInfos[0].id);
           mSessionClosed = true;
@@ -276,7 +274,7 @@ TEST_F(ChreMessageHubTest, MessageRouterSendMessageToNanoapp) {
 
   // Send the message to the nanoapp
   std::unique_lock<std::mutex> lock(mutex);
-  ASSERT_TRUE(messageHub->sendMessage(std::move(messageData), kMessageSize,
+  ASSERT_TRUE(messageHub->sendMessage(std::move(messageData),
                                       /* messageType= */ 1,
                                       /* messagePermissions= */ 0, sessionId));
   condVar.wait(lock);
@@ -339,7 +337,7 @@ TEST_F(ChreMessageHubTest, MessageRouterSendMessageToNanoappPermissionFailure) {
   // Send the message to the nanoapp
   std::unique_lock<std::mutex> lock(mutex);
   ASSERT_TRUE(messageHub->sendMessage(
-      std::move(messageData), kMessageSize,
+      std::move(messageData),
       /* messageType= */ 1,
       /* messagePermissions= */ CHRE_PERMS_AUDIO | CHRE_PERMS_GNSS, sessionId));
 
