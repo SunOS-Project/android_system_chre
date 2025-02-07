@@ -77,7 +77,8 @@ enum class SystemCallbackType : uint16_t {
   TimerPoolTimerExpired,
   TransactionManagerTimeout,
   EndpointMessageToNanoappEvent,
-  EndpointSessionClosedEvent,
+  EndpointSessionStateChangedEvent,
+  EndpointMessageFreeEvent,
 };
 
 //! Deferred/delayed callbacks use the event subsystem but are invariably sent

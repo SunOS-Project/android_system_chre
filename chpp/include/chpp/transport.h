@@ -58,7 +58,7 @@ extern "C" {
  * attempted. Setting this to zero disables retransmissions.
  */
 #ifndef CHPP_TRANSPORT_MAX_RETX
-#define CHPP_TRANSPORT_MAX_RETX UINT16_C(4)
+#define CHPP_TRANSPORT_MAX_RETX UINT16_C(6)
 #endif
 
 /**
@@ -339,10 +339,6 @@ struct ChppTxStatus {
   //! Last sent sequence number (irrespective of whether it has been received /
   //! ACKed or not)
   uint8_t sentSeq;
-
-  //! Does the transport layer have any packets (with or without payload) it
-  //! needs to send out?
-  bool hasPacketsToSend;
 
   //! Error code, if any, of the next packet the transport layer will send out.
   uint8_t packetCodeToSend;
