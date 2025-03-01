@@ -139,12 +139,17 @@ class MessageRouter {
     //! onSessionOpenRequest will be called to request the session to be
     //! opened. Once the peer message hub calls onSessionOpenComplete or
     //! closeSession, onSessionOpened or onSessionClosed will be called,
-    //! depending on the result.
+    //! depending on the result. If the session ID is provided (not
+    //! SESSION_ID_INVALID), it must be unique and from the reserved session ID
+    //! range. MessageRouter does not guarantee anything about the session ID if
+    //! it is provided in this API. If the session ID is not provided,
+    //! MessageRouter will assign a session ID normally.
     //! @return The session ID or SESSION_ID_INVALID if the session could
     //! not be opened
     SessionId openSession(EndpointId fromEndpointId,
                           MessageHubId toMessageHubId, EndpointId toEndpointId,
-                          const char *serviceDescriptor = nullptr);
+                          const char *serviceDescriptor = nullptr,
+                          SessionId sessionId = SESSION_ID_INVALID);
 
     //! Closes the session with sessionId and reason
     //! @return true if the session was closed, false if the session was not
@@ -192,10 +197,22 @@ class MessageRouter {
     MessageHubCallback *callback;
   };
 
+  //! The default reserved session ID value
+  static constexpr SessionId kDefaultReservedSessionId = 0x8000;
+
   MessageRouter() = delete;
+
+  //! Constructor for the MessageRouter.
+  //! @param messageHubs The list of MessageHubs connected to the MessageRouter
+  //! @param sessions The list of sessions connected to the MessageRouter
+  //! @param reservedSessionId The first reserved session ID - MessageRouter
+  //! will not assign session IDs greater than or equal to this value
   MessageRouter(pw::Vector<MessageHubRecord> &messageHubs,
-                pw::Vector<Session> &sessions)
-      : mMessageHubs(messageHubs), mSessions(sessions) {}
+                pw::Vector<Session> &sessions,
+                SessionId reservedSessionId = kDefaultReservedSessionId)
+      : kReservedSessionId(reservedSessionId),
+        mMessageHubs(messageHubs),
+        mSessions(sessions) {}
 
   //! Registers a MessageHub with the MessageRouter.
   //! The provided name must be unique and not registered before and be a valid
@@ -236,9 +253,14 @@ class MessageRouter {
   std::optional<Endpoint> getEndpointForService(MessageHubId messageHubId,
                                                 const char *serviceDescriptor);
 
-  //! Executes the function for each MessageHub connected to the MessageRouter.
-  //! If function returns true, the iteration will stop.
-  //! The lock is held when calling the callback.
+  //! @return true if the endpoint has the given service descriptor, a
+  //! null-terminated ASCII string, false otherwise.
+  bool doesEndpointHaveService(MessageHubId messageHubId, EndpointId endpointId,
+                               const char *serviceDescriptor);
+
+  //! Executes the function for each MessageHub connected to the
+  //! MessageRouter. If function returns true, the iteration will stop. The
+  //! lock is held when calling the callback.
   void forEachMessageHub(
       const pw::Function<bool(const MessageHubInfo &)> &function);
 
@@ -258,19 +280,23 @@ class MessageRouter {
                              SessionId sessionId);
 
   //! Opens a session from an endpoint connected to the current MessageHub
-  //! to the listed MessageHub ID and endpoint ID with the given service
+  //! to the listed MessageHub ID and endpoint ID, with the given service
   //! descriptor, a null-terminated ASCII string.
-  //! to the listed MessageHub ID and endpoint ID.
   //! onSessionOpenRequest will be called to request the session to be
   //! opened. Once the peer message hub calls onSessionOpenComplete or
   //! closeSession, onSessionOpened or onSessionClosed will be called,
-  //! depending on the result.
+  //! depending on the result. If the session ID is provided (not
+  //! SESSION_ID_INVALID), it must be unique and from the reserved session ID
+  //! range. MessageRouter does not guarantee anything about the session ID if
+  //! it is provided in this API. If the session ID is not provided,
+  //! MessageRouter will assign a session ID normally.
   //! @return The session ID or SESSION_ID_INVALID if the session could not be
   //! opened
   SessionId openSession(MessageHubId fromMessageHubId,
                         EndpointId fromEndpointId, MessageHubId toMessageHubId,
                         EndpointId toEndpointId,
-                        const char *serviceDescriptor = nullptr);
+                        const char *serviceDescriptor = nullptr,
+                        SessionId sessionId = SESSION_ID_INVALID);
 
   //! Closes the session with sessionId and reason
   //! @return true if the session was closed, false if the session was not
@@ -323,11 +349,19 @@ class MessageRouter {
   //! callback
   bool checkIfEndpointExists(MessageHubCallback *callback, EndpointId endpointId);
 
+  //! @return The next available Session ID. Will wrap around if needed and
+  //! ensures the returned ID is not in the reserved range nor is it already in
+  //! use. Requires the caller to hold the mutex.
+  SessionId getNextSessionIdLocked();
+
   //! The mutex to protect MessageRouter state
   Mutex mMutex;
 
   //! The next available Session ID
   SessionId mNextSessionId = 0;
+
+  //! The start of the reserved session ID range
+  const SessionId kReservedSessionId;
 
   //! The list of MessageHubs connected to the MessageRouter
   pw::Vector<MessageHubRecord> &mMessageHubs;
@@ -343,8 +377,9 @@ typedef Singleton<MessageRouter> MessageRouterSingleton;
 template <size_t kMaxMessageHubs, size_t kMaxSessions>
 class MessageRouterWithStorage : public MessageRouter {
  public:
-  MessageRouterWithStorage():
-      MessageRouter(mMessageHubs, mSessions) {}
+  MessageRouterWithStorage(
+      SessionId reservedSessionId = MessageRouter::kDefaultReservedSessionId)
+      : MessageRouter(mMessageHubs, mSessions, reservedSessionId) {}
 
  private:
   //! The list of MessageHubs connected to the MessageRouter

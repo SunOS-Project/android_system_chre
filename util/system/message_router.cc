@@ -53,13 +53,15 @@ void MessageRouter::MessageHub::onSessionOpenComplete(SessionId sessionId) {
   }
 }
 
-SessionId MessageRouter::MessageHub::openSession(
-    EndpointId fromEndpointId, MessageHubId toMessageHubId,
-    EndpointId toEndpointId, const char *serviceDescriptor) {
+SessionId MessageRouter::MessageHub::openSession(EndpointId fromEndpointId,
+                                                 MessageHubId toMessageHubId,
+                                                 EndpointId toEndpointId,
+                                                 const char *serviceDescriptor,
+                                                 SessionId sessionId) {
   return mRouter == nullptr
              ? SESSION_ID_INVALID
              : mRouter->openSession(mHubId, fromEndpointId, toMessageHubId,
-                                    toEndpointId, serviceDescriptor);
+                                    toEndpointId, serviceDescriptor, sessionId);
 }
 
 bool MessageRouter::MessageHub::closeSession(SessionId sessionId,
@@ -198,6 +200,26 @@ std::optional<Endpoint> MessageRouter::getEndpointForService(
   return std::nullopt;
 }
 
+bool MessageRouter::doesEndpointHaveService(MessageHubId messageHubId,
+                                            EndpointId endpointId,
+                                            const char *serviceDescriptor) {
+  if (serviceDescriptor == nullptr) {
+    LOGE("Failed to check if endpoint has service: service descriptor is null");
+    return false;
+  }
+
+  MessageRouter::MessageHubCallback *callback =
+      getCallbackFromMessageHubId(messageHubId);
+  if (callback == nullptr) {
+    LOGE(
+        "Failed to check if endpoint has service for message hub with ID "
+        "%" PRIu64 " and endpoint ID %" PRIu64 ": hub not found",
+        messageHubId, endpointId);
+    return false;
+  }
+  return callback->doesEndpointHaveService(endpointId, serviceDescriptor);
+}
+
 void MessageRouter::forEachMessageHub(
     const pw::Function<bool(const MessageHubInfo &)> &function) {
   LockGuard<Mutex> lock(mMutex);
@@ -259,7 +281,15 @@ SessionId MessageRouter::openSession(MessageHubId fromMessageHubId,
                                      EndpointId fromEndpointId,
                                      MessageHubId toMessageHubId,
                                      EndpointId toEndpointId,
-                                     const char *serviceDescriptor) {
+                                     const char *serviceDescriptor,
+                                     SessionId sessionId) {
+  if (sessionId != SESSION_ID_INVALID && sessionId < kReservedSessionId) {
+    LOGE("Failed to open session: session ID %" PRIu16
+         " is not in the reserved range",
+         sessionId);
+    return SESSION_ID_INVALID;
+  }
+
   if (fromMessageHubId == toMessageHubId) {
     LOGE(
         "Failed to open session: initiator and peer message hubs are the "
@@ -299,7 +329,9 @@ SessionId MessageRouter::openSession(MessageHubId fromMessageHubId,
     return SESSION_ID_INVALID;
   }
 
-  Session finalSession;
+  Session session(SESSION_ID_INVALID,
+                  Endpoint(fromMessageHubId, fromEndpointId),
+                  Endpoint(toMessageHubId, toEndpointId), serviceDescriptor);
   {
     LockGuard<Mutex> lock(mMutex);
     if (mSessions.full()) {
@@ -307,29 +339,33 @@ SessionId MessageRouter::openSession(MessageHubId fromMessageHubId,
       return SESSION_ID_INVALID;
     }
 
-    Session querySession(
-        mNextSessionId, Endpoint(fromMessageHubId, fromEndpointId),
-        Endpoint(toMessageHubId, toEndpointId), serviceDescriptor);
-
     bool foundSession = false;
-    for (Session &session : mSessions) {
-      if (session.isEquivalent(querySession)) {
-        LOGD("Session with ID %" PRIu16 " already exists", session.sessionId);
-        finalSession = session;
+    for (Session &existingSession : mSessions) {
+      if (existingSession.isEquivalent(session)) {
+        LOGD("Session with ID %" PRIu16 " already exists",
+             existingSession.sessionId);
+        session = existingSession;
         foundSession = true;
         break;
       }
     }
 
     if (!foundSession) {
-      mSessions.push_back(querySession);
-      finalSession = querySession;
-      ++mNextSessionId;
+      if (sessionId == SESSION_ID_INVALID) {
+        sessionId = getNextSessionIdLocked();
+        if (sessionId == SESSION_ID_INVALID) {
+          LOGE("Failed to open session: no available session ID");
+          return SESSION_ID_INVALID;
+        }
+      }
+
+      session.sessionId = sessionId;
+      mSessions.push_back(session);
     }
   }
 
-  peerCallback->onSessionOpenRequest(finalSession);
-  return finalSession.sessionId;
+  peerCallback->onSessionOpenRequest(session);
+  return session.sessionId;
 }
 
 bool MessageRouter::closeSession(MessageHubId fromMessageHubId,
@@ -504,6 +540,33 @@ bool MessageRouter::checkIfEndpointExists(
     return false;
   });
   return context.foundEndpoint;
+}
+
+SessionId MessageRouter::getNextSessionIdLocked() {
+  constexpr size_t kMaxIterations = 10;
+
+  if (mNextSessionId >= kReservedSessionId) {
+    mNextSessionId = 0;
+  }
+
+  bool foundSessionIdConflict;
+  size_t iterations = 0;
+  do {
+    foundSessionIdConflict = false;
+    for (const Session &session : mSessions) {
+      if (session.sessionId == mNextSessionId) {
+        ++mNextSessionId;
+        if (mNextSessionId >= kReservedSessionId) {
+          mNextSessionId = 0;
+        }
+        foundSessionIdConflict = true;
+        break;
+      }
+    }
+    ++iterations;
+  } while (foundSessionIdConflict && iterations < kMaxIterations);
+
+  return foundSessionIdConflict ? SESSION_ID_INVALID : mNextSessionId++;
 }
 
 }  // namespace chre::message
