@@ -160,6 +160,7 @@ pw_add_library(chre.util.system STATIC
   HEADERS
     include/chre/util/system/atomic_spsc_queue.h
     include/chre/util/system/ble_util.h
+    include/chre/util/system/chre_error_util.h
     include/chre/util/system/debug_dump.h
     include/chre/util/system/error_util.h
     include/chre/util/system/event_callbacks.h
@@ -178,6 +179,7 @@ pw_add_library(chre.util.system STATIC
     include/chre/util/system/synchronized_memory_pool.h
     include/chre/util/system/synchronized_memory_pool_impl.h
     include/chre/util/system/stats_container.h
+    include/chre/util/system/system_callback_type.h
     include/chre/util/system/transaction_manager.h
     include/chre/util/system/transaction_manager_impl.h
     include/chre/util/system/wifi_util.h
@@ -195,6 +197,7 @@ pw_add_library(chre.util.system STATIC
     chre.variant.config
     pw_allocator.deallocator
     pw_containers.vector
+    pw_intrusive_ptr
   SOURCES
     system/ble_util.cc
     system/error_util.cc
